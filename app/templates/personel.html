@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  {% set panel_title = business_name ~ " — Kasa" %}
+  {% include "_panel_head.html" %}
+</head>
+<body class="bg-surface font-body-md text-on-surface antialiased">
+  {% include "_panel_topbar.html" %}
+
+  <main class="w-full min-h-[calc(100vh-2.5rem)] pt-20 pb-14 bg-surface px-gutter">
+    <div class="flex flex-col w-full gap-space-lg">
+
+      <!-- Başlık şeridi: kasiyer, tarih, bugünkü sayaçlar -->
+      <div class="bb-card bg-surface-container-lowest p-space-md rounded-xl flex flex-wrap items-center justify-between gap-space-md">
+        <div class="flex items-center gap-space-md">
+          <div class="w-11 h-11 rounded-lg bg-primary text-on-primary flex items-center justify-center shadow-sm">
+            <span class="material-symbols-outlined text-[24px]">point_of_sale</span>
+          </div>
+          <div>
+            <h1 class="font-headline-sm text-headline-sm text-on-surface">Kasa</h1>
+            <div class="flex items-center gap-space-sm text-on-surface-variant font-label-md text-label-md">
+              <span>{{ session_name or 'Kasiyer' }}</span>
+              <span class="text-outline-variant">•</span>
+              <span id="terminal-date" class="font-semibold">—</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-space-md">
+          <div class="flex items-center gap-space-lg px-space-md py-space-sm rounded-lg bg-surface-container-low" style="border:1px solid var(--bb-border)">
+            <div class="flex flex-col">
+              <span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Bugün Basılan</span>
+              <span class="font-bold text-on-surface" style="font-size:20px"><span id="counter-stamps">0</span> <span class="text-sm font-semibold text-secondary">damga</span></span>
+            </div>
+            <div class="flex flex-col">
+              <span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Verilen Hediye</span>
+              <span class="font-bold text-on-surface" style="font-size:20px"><span id="counter-gifts">0</span> <span class="text-sm font-semibold text-secondary">kahve</span></span>
+            </div>
+          </div>
+          <button type="button" onclick="openQrModal()" class="bb-btn-primary" title="Müşterinin okutacağı canlı Damga QR'ı (her okutmada yenilenir)">
+            <span class="material-symbols-outlined text-[18px]">qr_code_2</span>
+            <span>Damga QR'ı Göster</span>
+          </button>
+          <button type="button" onclick="endShift()" class="bb-btn">
+            <span class="material-symbols-outlined text-[18px]">lock_reset</span>
+            <span>Vardiyayı Kapat</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TEK AKILLI ARAMA: telefon (5XX…) veya kullanıcı adı → müşteri kartı (damga / hediye aynı kartta) -->
+      <div class="bb-card bg-surface-container-lowest p-space-lg rounded-xl flex flex-col gap-space-md" id="card-staff-search">
+        <label class="bb-label" for="cust-search" style="font-size:13px">🔍 Telefon Numarası (5XX…) veya Kullanıcı Adı ile Müşteri Ara</label>
+        <div class="flex items-stretch gap-space-sm">
+          <input id="cust-search" class="bb-input" style="font-size:22px;padding:0.9rem 1rem;font-weight:700" type="search" inputmode="search" autocomplete="off" placeholder="5XX XXX XX XX  veya  kullanıcı adı" />
+          <button type="button" class="bb-btn" onclick="openScanner()" title="Kamera ile QR tara (F2)">
+            <span class="material-symbols-outlined text-[20px]">qr_code_scanner</span>
+            <span class="hidden sm:inline">QR Tara</span>
+          </button>
+        </div>
+        <div id="search-results" class="flex flex-col gap-space-md"></div>
+      </div>
+
+      <!-- Hızlı yeni müşteri kaydı -->
+      <div class="bb-card bg-surface-container-lowest p-space-lg rounded-xl">
+        <h2 class="font-headline-sm text-headline-sm text-on-surface mb-space-md">Yeni Müşteri Kaydı</h2>
+        <form id="new-customer-form" class="grid grid-cols-1 md:grid-cols-4 gap-space-md items-end">
+          <div>
+            <label class="bb-label" for="new-cust-name">Ad Soyad (isteğe bağlı)</label>
+            <input id="new-cust-name" class="bb-input" placeholder="Örn: Selin Demir" type="text" />
+          </div>
+          <div>
+            <label class="bb-label" for="new-cust-phone">Telefon</label>
+            <input id="new-cust-phone" class="bb-input" placeholder="5XX XXX XX XX" type="tel" maxlength="14" />
+          </div>
+          <label class="flex items-center gap-2 pb-2 cursor-pointer" for="new-cust-consent">
+            <input id="new-cust-consent" class="w-4 h-4 rounded accent-secondary" type="checkbox" />
+            <span class="font-label-md text-label-md text-on-surface">Müşteriye KVKK Aydınlatma Metni gösterildi / bilgilendirildi</span>
+          </label>
+          <button class="bb-btn-primary" type="submit">
+            <span class="material-symbols-outlined text-[18px]">how_to_reg</span>
+            <span>Kaydet</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Bu kasanın son işlemleri -->
+      <div class="bb-card bg-surface-container-lowest p-space-lg rounded-xl">
+        <div class="flex items-center justify-between gap-space-sm mb-space-md">
+          <h2 class="font-headline-sm text-headline-sm text-on-surface">Son İşlemlerim</h2>
+          <div class="flex items-center gap-space-sm">
+            <span id="logs-count" class="bb-chip">—</span>
+            <button type="button" onclick="loadRecentLogs()" title="Listeyi yenile" class="bb-icon-btn"><span class="material-symbols-outlined text-[16px]">sync</span></button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="bb-table">
+            <thead><tr><th>Saat</th><th>İşlem</th><th>Telefon</th><th>Detay</th></tr></thead>
+            <tbody id="cashier-history-rows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bildirim alanı -->
+      <div id="action-toast" class="hidden"></div>
+    </div>
+  </main>
+
+  <footer class="fixed bottom-0 left-0 right-0 h-10 bg-surface-container-high z-50 flex items-center justify-between px-gutter" style="border-top:1px solid var(--bb-border)">
+    <span class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>Kasa terminali</span>
+    <span class="font-label-sm text-label-sm text-outline">© {{ business_name }}</span>
+  </footer>
+
+  <!-- Kasa QR (ADR-28, ADR-29): sabit Kasa QR / NFC (her okutuş tek kullanımlık açılış) + isteğe bağlı canlı Damga QR'ı + Menü QR'ı.
+       Yerleşim düz CSS ile (derlenmemiş Tailwind sınıflarına bağlı değil). -->
+  <style>
+    .qr-live-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    @media (min-width: 768px) { .qr-live-grid { grid-template-columns: 2fr 1fr; } }
+    .qr-live-side { display: flex; flex-direction: column; gap: 1rem; }
+    #qr-modal-card { max-width: 56rem; }
+    .stamp-qr-img { width: min(19rem, 72vw); height: min(19rem, 72vw); image-rendering: pixelated; }
+    .qr-small-img { width: 8.5rem; height: 8.5rem; }
+    #qr-modal-card:fullscreen, #qr-modal-card.is-full { max-width: none; width: 100vw; min-height: 100vh; margin: 0; border-radius: 0; justify-content: center; overflow: auto; }
+    #qr-modal-card.is-full { position: fixed; inset: 0; z-index: 200; }
+    #qr-modal-card:fullscreen .qr-live-side, #qr-modal-card.is-full .qr-live-side { display: none; }
+    #qr-modal-card:fullscreen .qr-live-grid, #qr-modal-card.is-full .qr-live-grid { grid-template-columns: 1fr; }
+    #qr-modal-card:fullscreen .stamp-qr-img, #qr-modal-card.is-full .stamp-qr-img { width: min(68vh, 86vw); height: min(68vh, 86vw); }
+  </style>
+  <div id="modal-qr" class="hidden fixed inset-0 z-[120] bb-scrim p-5 overflow-y-auto">
+    <div id="qr-modal-card" class="bb-card bg-surface-container-lowest rounded-xl w-full mx-auto mt-6 p-space-lg shadow-2xl flex flex-col gap-space-md">
+      <div class="flex items-center justify-between gap-space-sm">
+        <h3 class="font-headline-md text-headline-md text-on-surface">Kasa QR Kodları</h3>
+        <div class="flex items-center gap-space-sm">
+          <button type="button" onclick="toggleQrFullscreen()" class="bb-btn" title="Müşteriye dönük ekranda yalnızca Damga QR'ını büyük göster">⛶ Tam Ekran</button>
+          <button type="button" onclick="closeQrModal()" class="bb-icon-btn" title="Kapat"><span class="material-symbols-outlined text-[18px]">close</span></button>
+        </div>
+      </div>
+      <div class="qr-live-grid">
+        <div class="p-space-md bg-surface-container-low rounded-xl flex flex-col items-center gap-2 text-center" style="border:2px solid var(--bb-border)">
+          <span class="bb-chip bb-chip-ok">{% if static_qr_stamps %}CANLI DAMGA QR • İSTEĞE BAĞLI{% else %}CANLI DAMGA QR{% endif %}</span>
+          <img id="qr-modal-stamp" alt="Damga QR kodu" class="stamp-qr-img object-contain bg-surface-bright rounded-lg" src="" />
+          <p id="stamp-qr-state" class="font-body-md text-body-md text-on-surface font-semibold" aria-live="polite">Kod hazırlanıyor…</p>
+          <p class="font-label-sm text-label-sm text-on-surface-variant">{% if static_qr_stamps %}Kasadaki basılı QR / NFC'ye ek olarak müşteri bu canlı kodu da okutabilir{% else %}Basılı QR yalnızca kayıt içindir; müşteri damga için bu canlı kodu, Kasa QR Ekranını ya da NFC 424 DNA etiketini kullanır{% endif %}: +1 damga eklenir ve kod hemen yenilenir. Yenilenme: <strong id="stamp-qr-countdown">—</strong> sn</p>
+        </div>
+        <div class="qr-live-side">
+          <div class="p-space-md bg-surface-container-low rounded-xl flex flex-col items-center gap-2 text-center" style="border:1px solid var(--bb-border)">
+            <img id="qr-modal-register" alt="Damga QR kodu (kasa damga noktası)" class="qr-small-img object-contain bg-surface-bright rounded-lg" src="" />
+            <span class="font-label-sm text-label-sm text-secondary uppercase font-semibold">Damga QR (sabit)</span>
+            {% if static_qr_stamps %}<span class="font-label-sm text-label-sm text-on-surface-variant">Okutan müşteri damga alır (yeni müşteriyse kayıt + kayıt hediyesi + damga). Kasadaki basılı QR ve NFC etiketi bu adresi açar.</span>
+            {% else %}<span class="font-label-sm text-label-sm text-on-surface-variant">Şu an damga vermiyor: yalnızca kayıt + uygulama (Müdür → QR Kodlar). Damga: canlı kod, Kasa QR Ekranı ya da NFC 424 DNA etiketi.</span>{% endif %}
+            <a id="qr-modal-register-dl" href="#" download="damga-qr.png" class="font-label-md text-label-md text-secondary underline">PNG İndir</a>
+          </div>
+          <div class="p-space-md bg-surface-container-low rounded-xl flex flex-col items-center gap-2 text-center" style="border:1px solid var(--bb-border)">
+            <img id="qr-modal-kayit" alt="Kayıt ve uygulama QR kodu (damga vermez)" class="qr-small-img object-contain bg-surface-bright rounded-lg" src="" />
+            <span class="font-label-sm text-label-sm text-secondary uppercase font-semibold">Kayıt / Uygulama QR</span>
+            <span class="font-label-sm text-label-sm text-on-surface-variant">Sistemi açar, damga vermez. Yeni müşteri kayıt olunca +1 hediye damga alır.</span>
+            <a id="qr-modal-kayit-dl" href="#" download="kayit-uygulama-qr.png" class="font-label-md text-label-md text-secondary underline">PNG İndir</a>
+          </div>
+          <div class="p-space-md bg-surface-container-low rounded-xl flex flex-col items-center gap-2 text-center" style="border:1px solid var(--bb-border)">
+            <img id="qr-modal-install" alt="Menü ve uygulama indirme QR" class="qr-small-img object-contain bg-surface-bright rounded-lg" src="" />
+            <span class="font-label-sm text-label-sm text-outline uppercase font-semibold">Menü &amp; Uygulama QR</span>
+            <a id="qr-modal-install-dl" href="#" download="masa-menu-qr.png" class="font-label-md text-label-md text-secondary underline">PNG İndir</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kamera QR okuyucu -->
+  <div id="modal-scanner" class="hidden fixed inset-0 z-[120] bb-scrim p-5 overflow-y-auto">
+    <div class="bb-card bg-surface-container-lowest rounded-xl max-w-md w-full mx-auto mt-14 p-space-lg shadow-2xl flex flex-col gap-space-md">
+      <div class="flex items-center justify-between">
+        <h3 class="font-headline-md text-headline-md text-on-surface">Kamera ile QR Tara</h3>
+        <button type="button" onclick="closeScanner()" class="bb-icon-btn"><span class="material-symbols-outlined text-[18px]">close</span></button>
+      </div>
+      <div id="bb-scanner-region" class="rounded-xl overflow-hidden bg-surface-container-high min-h-[240px] flex items-center justify-center"></div>
+      <p id="scanner-hint" class="font-label-sm text-label-sm text-outline text-center">Kamera başlatılıyor…</p>
+      <button type="button" onclick="closeScanner()" class="bb-btn">Vazgeç</button>
+    </div>
+  </div>
+
+  <script src="{{ rel_base }}static/js/panel.js?v={{ asset_v }}"></script>
+  <script src="{{ rel_base }}static/js/vendor/html5-qrcode.min.js"></script>
+  <script>
+    window.onUnauthorized = () => location.reload();
+
+    let lastResults = [];
+    let searchSeq = 0;
+    let searchTimer = null;
+    let lastSig = "";
+    const searchInput = document.getElementById("cust-search");
+    const newCustPhoneInput = document.getElementById("new-cust-phone");
+    bindPhoneMask(newCustPhoneInput);
+
+    document.getElementById("terminal-date").innerText = new Date().toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", weekday: "long", day: "2-digit", month: "long" });
+
+    // ---------- Müşteri kartı: dinamik damga kutuları (hedef ayardan gelir) + tek akış ----------
+    function slotsHtml(current, target) {
+      let out = "";
+      for (let i = 1; i <= target; i++) {
+        const on = i <= current;
+        const last = i === target;
+        out += '<div class="bb-slot' + (on ? " is-on" : "") + '">' + (on ? "☕" : (last ? "🎁" : i)) + "</div>";
+      }
+      return out;
+    }
+
+    function customerCard(c) {
+      const target = Number(c.stamp_target) || 5;
+      const cur = Number(c.current_stamps) || 0;
+      const limitHit = c.today_stamps >= c.daily_limit;
+      const gift = c.usable_rewards > 0;
+      const giftBtn = gift
+        ? '<div class="bb-gift-card p-3 flex items-center justify-between gap-3 flex-wrap"><strong style="font-size:16px">🎉 ' + c.usable_rewards + " adet hediye " + esc(c.reward_name || "kahve") + ' hazır</strong>' +
+          '<button type="button" class="bb-btn-ok" style="min-height:3.25rem;font-size:16px;flex:1 1 16rem" data-act="gift" data-id="' + c.id + '">🎁 HEDİYE KAHVEYİ VER (ONAYLA)</button></div>'
+        : "";
+      const stampBtn = limitHit
+        ? '<button type="button" class="bb-btn" style="min-height:3rem;font-size:15px" disabled>Günlük limit (' + c.daily_limit + ") doldu</button>"
+        : '<button type="button" class="' + (gift ? "bb-btn" : "bb-btn-primary") + '" style="min-height:3.25rem;font-size:16px" data-act="stamp" data-id="' + c.id + '">+1 DAMGA BAS</button>';
+      return '<div class="flex flex-col gap-space-sm">' + proofNoteStrip(c) +
+        '<div class="rounded-xl p-space-lg flex flex-col gap-space-md bg-surface-container-low" style="border:1px solid var(--bb-border)">' +
+        '<div class="flex flex-wrap items-start justify-between gap-3">' +
+          '<div><div class="font-bold text-on-surface" style="font-size:24px;line-height:30px">' + esc(c.display_name) + "</div>" +
+          '<div class="font-mono text-sm text-on-surface-variant">' + esc(c.masked_phone || "") + "</div>" +
+          '<div class="text-xs text-outline">Kayıt: ' + esc(c.created_at ? c.created_at.substring(0, 10) : "—") + " • Son ziyaret: " + esc(c.last_visit ? c.last_visit.substring(0, 10) : "ilk ziyaret") + "</div></div>" +
+          '<div class="text-right"><div class="font-bold text-on-surface" style="font-size:26px;line-height:30px">' + cur + " / " + target + ' Damga</div>' +
+          '<div class="text-xs text-on-surface-variant">Bugün ' + c.today_stamps + " / " + c.daily_limit + "</div></div>" +
+        "</div>" +
+        '<div class="flex flex-wrap gap-2">' + slotsHtml(cur, target) + "</div>" +
+        bonusProofHtml(c) +
+        campaignBoxHtml(c) +
+        giftBtn +
+        '<div class="flex flex-col sm:flex-row gap-space-sm">' + stampBtn + "</div>" +
+        recentStampsHtml(c) +
+      "</div></div>";
+    }
+
+    function renderResults() {
+      document.getElementById("search-results").innerHTML = lastResults.map(customerCard).join("");
+    }
+
+    async function runSearch() {
+      const q = searchInput.value.trim();
+      const box = document.getElementById("search-results");
+      if (q.length < 3) { box.innerHTML = ""; lastResults = []; return; }
+      const seq = ++searchSeq;
+      const res = await api("api/staff/search", { method: "POST", body: { q } });
+      if (seq !== searchSeq) return;
+      if (res.status === "success") {
+        lastResults = res.customers || [];
+        renderResults();
+        // kasiyer uyarısı çıkan yeni bir sonuç listesinde kısa sesli ikaz
+        const sig = lastResults.map((c) => c.id).join(",");
+        if (sig !== lastSig && lastResults.some(proofNeedsNote)) proofBeep();
+        lastSig = sig;
+      } else {
+        lastResults = [];
+        box.innerHTML = '<p class="font-body-md text-body-md text-on-surface-variant">' + esc(res.message || "Müşteri bulunamadı.") + "</p>";
+      }
+    }
+
+    function clearSearch() {
+      searchInput.value = "";
+      lastResults = [];
+      document.getElementById("search-results").innerHTML = "";
+      searchInput.focus();
+    }
+
+    function updateCustomer(c) {
+      lastResults = lastResults.map((x) => (x.id === c.id ? c : x));
+      renderResults();
+    }
+
+    let actionBusy = false;
+    // Ödüllü kampanya doğrulaması (ör. Google yorumu): kasiyer müşterinin telefonunda görür → onay = kampanya damgası
+    async function campaignAction(act, id, campId) {
+      const c = lastResults.find((x) => x.id === id);
+      const camp = c && (c.campaigns || []).find((x) => x.campaign_id === campId);
+      if (!c || !camp) return;
+      let reason = "";
+      if (act === "camp-ok") {
+        const ok = await confirmBox(c.display_name + " — “" + camp.title + "” görevini müşterinin telefonunda gördünüz mü? Onaylarsanız +" + camp.reward_stamps + " damga eklenir.", "Gördüm, Onayla");
+        if (!ok) return;
+      } else {
+        reason = await promptBox("Ret nedeni (müşteri uygulamada görür):", "Yorum bulunamadı");
+        if (reason === null) return;
+      }
+      actionBusy = true;
+      try {
+        const res = await api("api/staff/campaign-review", { method: "POST", body: { customer_id: id, campaign_id: campId, action: act === "camp-ok" ? "approve" : "reject", reason: reason } });
+        if (res.customer) updateCustomer(res.customer);
+        if (res.status === "success") {
+          showToast(act === "camp-ok" ? "Kampanya Onaylandı 🎯" : "Başvuru Reddedildi", res.message || "İşlem tamamlandı.", "success");
+          loadRecentLogs();
+        } else {
+          showToast("İşlem Başarısız", res.message || "İşlem tamamlanamadı.", "error");
+        }
+      } finally {
+        actionBusy = false;
+      }
+    }
+
+    async function cardAction(act, id, campId) {
+      if (actionBusy) return;
+      if (act === "camp-ok" || act === "camp-no") return campaignAction(act, id, campId);
+      const c = lastResults.find((x) => x.id === id);
+      if (!c) return;
+      if (act === "gift") {
+        const ok = await confirmBox(c.display_name + " için 1 adet hediye kahve düşülecek. Onaylıyor musunuz?", "Hediyeyi Ver");
+        if (!ok) return;
+      }
+      actionBusy = true;
+      try {
+        const res = await api(act === "gift" ? "api/staff/redeem" : "api/staff/stamp", { method: "POST", body: { customer_id: id } });
+        if (res.customer) updateCustomer(res.customer);
+        if (res.status === "success") {
+          showToast(act === "gift" ? "Hediye Verildi! 🎁" : "Damga Eklendi!", res.message || "İşlem tamamlandı.", "success");
+          loadRecentLogs();
+        } else if (res.status === "limit_reached") {
+          showToast("Günlük Limit", res.message || "Günlük damga sınırına ulaşıldı.", "error");
+        } else {
+          showToast("İşlem Başarısız", res.message || "İşlem tamamlanamadı.", "error");
+        }
+      } finally {
+        actionBusy = false;
+      }
+    }
+
+    searchInput.addEventListener("input", () => {
+      // yalnızca rakam/ayraç yazılıyorsa telefon maskesi uygulanır; kullanıcı adı serbest kalır
+      if (/^[0-9\s().+-]+$/.test(searchInput.value)) searchInput.value = window.formatPhoneInput(searchInput.value);
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(runSearch, 250);
+    });
+    document.getElementById("search-results").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (b) cardAction(b.getAttribute("data-act"), Number(b.getAttribute("data-id")), Number(b.getAttribute("data-camp") || 0));
+    });
+
+    // ---------- Hızlı yeni müşteri: api/staff/register ----------
+    const registerForm = document.getElementById("new-customer-form");
+    registerForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const phone = newCustPhoneInput.value.trim();
+      const name = document.getElementById("new-cust-name").value.trim() || null;
+      const consent = document.getElementById("new-cust-consent").checked;
+      if (!phone) {
+        showToast("Eksik Numara", "Kayıt için telefon numarası gerekir.", "error");
+        newCustPhoneInput.focus();
+        return;
+      }
+      const res = await api("api/staff/register", { method: "POST", body: { phone, display_name: name, consent_confirmed: consent } });
+      if ((res.status === "success" || res.status === "exists") && res.customer) {
+        showToast(res.status === "exists" ? "Zaten Kayıtlı" : "Müşteri Kaydedildi", (res.customer.display_name || "Misafir") + (res.status === "exists" ? " bulundu." : " sisteme eklendi."), "success");
+        registerForm.reset();
+        searchInput.value = window.formatPhoneInput(phone);
+        runSearch();
+        loadRecentLogs();
+      } else {
+        showToast("Kayıt Başarısız", res.message || "Müşteri kaydedilemedi.", "error");
+      }
+    });
+
+    // ---------- Son işlemler: api/staff/logs ----------
+    async function loadRecentLogs() {
+      const res = await api("api/staff/logs");
+      if (res.status !== "success") return;
+      document.getElementById("counter-stamps").innerText = String(res.today_stamps || 0);
+      document.getElementById("counter-gifts").innerText = String(res.today_gifts || 0);
+      const tbody = document.getElementById("cashier-history-rows");
+      const logs = res.logs || [];
+      document.getElementById("logs-count").innerText = logs.length ? logs.length + " kayıt" : "Kayıt yok";
+      if (!logs.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-on-surface-variant">Henüz işlem kaydı yok.</td></tr>';
+        return;
+      }
+      const chips = {
+        stamp_added: '<span class="bb-chip bb-chip-ok">+1 Damga</span>',
+        reward_redeemed: '<span class="bb-chip bb-chip-warn">🎁 Hediye Kahve</span>',
+        customer_registered: '<span class="bb-chip">Yeni Müşteri</span>',
+        customer_lookup: '<span class="bb-chip">Sorgulama</span>',
+        customer_search: '<span class="bb-chip">Arama</span>',
+        stamp_denied_daily_limit: '<span class="bb-chip">Limit Engeli</span>',
+        campaign_approved: '<span class="bb-chip bb-chip-ok">🎯 Kampanya Onayı</span>',
+        campaign_rejected: '<span class="bb-chip">Kampanya Reddi</span>'
+      };
+      tbody.innerHTML = logs.map((l) =>
+        "<tr><td class=\"text-xs text-outline\">" + esc(l.at ? String(l.at).substring(11, 16) : "—") + "</td>" +
+        "<td>" + (chips[l.action] || '<span class="bb-chip">' + esc(l.action) + "</span>") + "</td>" +
+        '<td class="font-mono text-xs">' + esc(l.phone || "—") + "</td>" +
+        '<td class="text-xs text-on-surface-variant">' + esc(l.detail || "Tamamlandı") + "</td></tr>"
+      ).join("");
+    }
+
+    // ---------- Bildirim ----------
+    function showToast(title, msg, type) {
+      const box = document.getElementById("action-toast");
+      const isError = type === "error";
+      box.className = "flex items-center justify-between rounded-xl shadow-lg px-space-lg py-space-md " + (isError ? "bg-error-container text-on-error-container" : "bg-secondary text-on-secondary");
+      box.style.cssText = "position:fixed;left:50%;bottom:3.5rem;transform:translateX(-50%);z-index:130;max-width:32rem;width:92%";
+      box.innerHTML = '<div><p class="font-label-lg text-label-lg font-bold">' + esc(title) + '</p><p class="font-body-sm text-body-sm">' + esc(msg) + "</p></div>";
+      clearTimeout(window._actToast);
+      window._actToast = setTimeout(() => box.classList.add("hidden"), 4500);
+    }
+
+    async function endShift() {
+      const ok = await confirmBox("Vardiyayı kapatmak istiyor musunuz? Terminal giriş ekranına güvenli modda döner.", "Vardiyayı Kapat");
+      if (!ok) return;
+      window.logout();
+    }
+
+    // ---------- Kasa QR (ADR-28): canlı, TEK KULLANIMLIK Damga QR'ı ----------
+    // Müşteri okutunca damga eklenir ve kod biter; ekran hemen yenisini gösterir. Okutulmasa da kısa aralıkla yenilenir;
+    // bağlantıyı kopyalayıp tekrar açan damga alamaz. Kayıt olan müşteriye ayrılan kodların sonucu da burada görünür.
+    const STAMP_POLL_MS = 2000;
+    const STAMP_IDLE_TEXT = "Müşteri okutunca +1 damga eklenir; kod hemen yenilenir.";
+    let stampCode = null, heldCodes = [], stampPollTimer = null, stampTickTimer = null, stampRotateAt = 0, stampBusy = false, stampMsgTimer = null;
+
+    function setStampState(text, kind, holdMs) {
+      const el = document.getElementById("stamp-qr-state");
+      el.textContent = text;
+      el.style.color = kind === "ok" ? "#2e7d5b" : kind === "warn" ? "#b26a00" : kind === "error" ? "#c62828" : "";
+      clearTimeout(stampMsgTimer);
+      if (holdMs) stampMsgTimer = setTimeout(() => setStampState(STAMP_IDLE_TEXT, "idle"), holdMs);
+    }
+
+    async function newStampCode(keepMessage) {
+      if (stampBusy) return;
+      stampBusy = true;
+      try {
+        const res = await api("api/staff/stamp-code", { method: "POST", body: { replaces: stampCode ? stampCode.id : null } });
+        if (res.status !== "success") {
+          setStampState(res.message || "Kod alınamadı; birkaç saniye içinde tekrar denenecek.", "error");
+          stampRotateAt = Date.now() + 5000;
+          return;
+        }
+        stampCode = res;
+        document.getElementById("qr-modal-stamp").src = res.qr;
+        stampRotateAt = Date.now() + (res.rotate_after || 60) * 1000;
+        if (!keepMessage) setStampState(STAMP_IDLE_TEXT, "idle");
+      } catch (e) {
+        setStampState("Bağlantı yok; tekrar deneniyor…", "error");
+        stampRotateAt = Date.now() + 5000;
+      } finally {
+        stampBusy = false;
+      }
+    }
+
+    function announceStampUse(c) {
+      const who = c.customer || "Müşteri";
+      if (c.result === "limit") setStampState(who + ": bugünkü damga limiti dolu, damga eklenmedi.", "warn", 6000);
+      else if (c.result === "welcome_locked") setStampState(who + ": hesap yeniden açıldı, kayıt damgası verilmedi.", "warn", 6000);
+      else if (c.result === "cooldown") setStampState(who + ": bu ziyarette zaten damga aldı, ikinci damga verilmedi.", "warn", 6000);
+      else setStampState("✓ " + who + " için +1 damga eklendi.", "ok", 6000);
+      loadRecentLogs();
+    }
+
+    async function pollStampCode() {
+      if (stampBusy) return;
+      if (!stampCode || Date.now() >= stampRotateAt) { await newStampCode(true); return; }
+      const ids = [stampCode.id].concat(heldCodes).slice(0, 5);
+      let res;
+      try { res = await api("api/staff/stamp-code/status?ids=" + ids.join(",")); } catch (e) { return; }
+      if (res.status !== "success" || !stampCode) return;
+      let rotate = false;
+      (res.codes || []).forEach((c) => {
+        const current = c.id === stampCode.id;
+        if (c.status !== "success" || c.state === "expired") {
+          heldCodes = heldCodes.filter((x) => x !== c.id);
+          if (current) rotate = true;
+        } else if (c.state === "used") {
+          heldCodes = heldCodes.filter((x) => x !== c.id);
+          announceStampUse(c);
+          if (current) rotate = true;
+        } else if (c.state === "held" && current) {
+          heldCodes.push(c.id);
+          setStampState("⏳ Bir müşteri kayıt oluyor; sıradaki müşteri için yeni kod gösteriliyor.", "warn", 5000);
+          rotate = true;
+        }
+      });
+      if (rotate) await newStampCode(true);
+    }
+
+    function openQrModal() {
+      document.getElementById("modal-qr").classList.remove("hidden");
+      const reg = APP_BASE + "api/staff/qr-image?kind=damga";      // ADR-35: kasadaki Damga QR'ı (/m/qr)
+      const kyt = APP_BASE + "api/staff/qr-image?kind=kayit";      // ADR-35: Kayıt / Uygulama QR'ı (/m/kayit, damga vermez)
+      const ins = APP_BASE + "api/staff/qr-image?kind=install";
+      document.getElementById("qr-modal-register").src = reg;
+      document.getElementById("qr-modal-register-dl").href = reg;
+      document.getElementById("qr-modal-kayit").src = kyt;
+      document.getElementById("qr-modal-kayit-dl").href = kyt;
+      document.getElementById("qr-modal-install").src = ins;
+      document.getElementById("qr-modal-install-dl").href = ins;
+      setStampState("Kod hazırlanıyor…", "idle");
+      newStampCode(false);
+      clearInterval(stampPollTimer); clearInterval(stampTickTimer);
+      stampPollTimer = setInterval(pollStampCode, STAMP_POLL_MS);
+      stampTickTimer = setInterval(() => {
+        const left = Math.max(0, Math.round((stampRotateAt - Date.now()) / 1000));
+        document.getElementById("stamp-qr-countdown").innerText = stampCode ? String(left) : "—";
+      }, 500);
+    }
+    function closeQrModal() {
+      document.getElementById("modal-qr").classList.add("hidden");
+      clearInterval(stampPollTimer); clearInterval(stampTickTimer);
+      stampPollTimer = stampTickTimer = null;
+      stampCode = null; heldCodes = [];
+      document.getElementById("qr-modal-card").classList.remove("is-full");
+      try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); } catch (e) {}
+    }
+    // Müşteriye dönük tablet/ekran: yalnızca Damga QR'ı büyük gösterilir (Fullscreen API yoksa CSS ile tüm ekran)
+    function toggleQrFullscreen() {
+      const card = document.getElementById("qr-modal-card");
+      try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+          return;
+        }
+        const req = card.requestFullscreen || card.webkitRequestFullscreen;
+        if (req) { req.call(card); return; }
+      } catch (e) {}
+      card.classList.toggle("is-full");
+    }
+
+    // ---------- Kamera ile QR / numara tarama ----------
+    let scannerInstance = null;
+    function openScanner() {
+      const modal = document.getElementById("modal-scanner");
+      modal.classList.remove("hidden");
+      const hint = document.getElementById("scanner-hint");
+      hint.innerText = "Kamera başlatılıyor…";
+      if (typeof Html5Qrcode === "undefined") { hint.innerText = "Kamera açılamadı. Numarayı elle yazın."; return; }
+      try {
+        scannerInstance = new Html5Qrcode("bb-scanner-region");
+        scannerInstance.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 220, height: 220 } },
+          (decodedText) => {
+            const m = String(decodedText || "").replace(/\D/g, "").match(/5\d{9}/);
+            if (m) {
+              closeScanner();
+              searchInput.value = window.formatPhoneInput(m[0]);
+              runSearch();
+            } else {
+              hint.innerText = "Geçersiz QR — numara okunamadı.";
+            }
+          },
+          () => {}
+        ).catch(() => { scannerInstance = null; hint.innerText = "Kamera açılamadı. Numarayı elle yazabilirsiniz."; });
+      } catch (err) { scannerInstance = null; hint.innerText = "Kamera başlatılamadı."; }
+    }
+    function closeScanner() {
+      document.getElementById("modal-scanner").classList.add("hidden");
+      if (!scannerInstance) return;
+      const inst = scannerInstance;
+      scannerInstance = null;
+      const finish = () => { try { if (inst.clear) inst.clear(); } catch (e) {} };
+      if (inst.stop) Promise.resolve(inst.stop()).then(finish).catch(finish); else finish();
+    }
+
+    // ---------- Klavye: Enter = ara, Esc = temizle, F2 = QR tara ----------
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && document.activeElement === searchInput) {
+        e.preventDefault();
+        runSearch();
+      } else if (e.key === "Escape") {
+        if (!document.getElementById("modal-scanner").classList.contains("hidden")) closeScanner();
+        else if (!document.getElementById("modal-qr").classList.contains("hidden")) closeQrModal();
+        else clearSearch();
+      } else if (e.key === "F2") {
+        e.preventDefault();
+        openScanner();
+      }
+    });
+
+    Object.assign(window, { openQrModal, closeQrModal, toggleQrFullscreen, openScanner, closeScanner, endShift, loadRecentLogs });
+    loadRecentLogs();
+    searchInput.focus();
+  </script>
+</body>
+</html>

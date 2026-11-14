@@ -1,0 +1,19 @@
+# Çalışma zamanı bağımlılıkları (Docker imajına kurulur). Testler için: pip install -r requirements-dev.txt
+# Alt sınırlar bilinen güvenlik açıklarının (CVE) düzeltildiği sürümlerdir; Docker her derlemede en yeni uyumlu sürümü kurar.
+fastapi>=0.120.0
+starlette>=0.49.1          # CVE-2025-62727 (StaticFiles Range başlığı DoS), CVE-2025-54121
+uvicorn[standard]>=0.30.0
+h11>=0.16.0                # CVE-2025-43859 (istek kaçakçılığı)
+jinja2>=3.1.6              # CVE-2025-27516, CVE-2024-56201, CVE-2024-56326
+python-dotenv>=1.0.1
+qrcode[pil]>=8.0
+pywebpush>=2.0.0
+requests>=2.32.4           # pywebpush taşıyıcısı; CVE-2024-47081, CVE-2024-35195
+urllib3>=2.5.0             # CVE-2025-50181, CVE-2025-50182
+cryptography>=44.0.1       # CVE-2024-12797 (paketlenmiş OpenSSL)
+python-multipart>=0.0.22   # CVE-2024-53981 (çok parçalı gövde DoS) ve sonrası
+psycopg2-binary>=2.9.9
+httpx>=0.27.0              # Directus senkronu (çalışma zamanı) + TestClient
+pillow>=11.3.0             # yüklenen görseller güvenilmez girdi: CVE-2025-48379, CVE-2024-28219, CVE-2023-50447
+openpyxl>=3.1.2
+reportlab>=4.0.0

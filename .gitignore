@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments & Secrets
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+env/
+ENV/
+
+# Deployment & Keys
+.env.deploy
+*.key
+*.pem
+SSH-KEY/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Databases & Runtime Data
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Archives & Compressed bundles (eski dağıtım paketleri dahil)
+*.tgz
+*.tar.gz
+*.zip
+*.rar
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# Subprojects & Unrelated local apps (ayrı projeler; bu depoya ve dağıtıma girmez)
+Food-Ordering-App-master/
+M1_admin/
+
+# Obsidian local workspace
+.obsidian/workspace*.json
+
+# Temporary scripts
+scan_secrets.py
+fix_test_line.py
+add_test.py
+update_tests.py
+
+# Yüklenen görseller (sunucuda volume)
+app/static/uploads/*
+!app/static/uploads/.gitkeep
+tools/node_modules/
+
+# Cloudflare Pages yerel durum/önbellek (hesap kimliği içerir) ve yerel gizli değerler
+cloudflare_pages/.wrangler/
+.wrangler/
+.dev.vars
+cloudflare_pages/.dev.vars
+_denetim/

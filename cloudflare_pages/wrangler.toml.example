@@ -1,0 +1,7 @@
+# Cloudflare Pages yapılandırma örneği: `wrangler.toml` olarak kopyalayıp kendi proje adınızı yazın.
+# Ortam değişkenlerini (`UPSTREAM_ORIGIN`, `EDGE_SHARED_SECRET`, `PAGES_PROJECT_HOST`, `ALLOWED_HOSTS`)
+# Cloudflare panosundan Secret/Variable veya `wrangler pages secret put` ile tanımlayın.
+
+name = "cafe-loyalty-edge"
+compatibility_date = "2026-01-01"
+pages_build_output_dir = "public"

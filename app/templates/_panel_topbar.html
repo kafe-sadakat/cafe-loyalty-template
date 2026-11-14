@@ -1,0 +1,54 @@
+<!--
+  Ortak sabit üst bar.
+  role=manager → paneller arası geçiş pill'leri görünür.
+  role=staff   → yalnızca kasa terminali rozetleri (Kasa İşlemleri).
+-->
+<header class="fixed top-0 left-0 right-0 z-50 bg-surface border-b border-outline-variant">
+  <div class="h-16 w-full px-gutter flex items-center justify-between gap-space-md">
+    <div class="flex items-center gap-space-md min-w-[280px]">
+      <img alt="{{ business_name }} Logo" class="h-8 w-8 rounded-lg object-contain" src="{{ rel_base }}static/img/logo.png" />
+      <div class="flex flex-col">
+        <span class="font-headline-sm text-headline-sm tracking-tight text-on-surface leading-none">{{ business_name }}</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-space-md">
+      {% if role == 'manager' %}
+      <div class="hidden md:flex items-center bg-surface-container-low px-space-xs py-space-xs rounded-lg gap-space-xs">
+        <button class="px-space-sm py-1 rounded font-label-md text-label-md bg-primary text-on-primary shadow-sm" type="button">Müdür Paneli</button>
+        <a href="{{ rel_base }}personel" class="px-space-sm py-1 rounded font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors">Kasiyer / Personel</a>
+      </div>
+      {% else %}
+      <div class="hidden lg:flex items-center gap-1.5 px-space-sm py-1 bg-surface-container rounded-lg">
+        <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+        <span class="font-label-sm text-label-sm text-on-surface-variant">Kasa Terminali Çevrimiçi</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="flex items-center gap-space-sm">
+      <!-- ADR-43: Kasa paneli uygulama olarak yüklenir (yalnızca yüklenebilirken görünür) -->
+      <button type="button" data-pwa-install onclick="panelInstall()" title="Uygulama olarak yükle" style="display:none"
+        class="h-9 px-2.5 rounded-lg inline-flex items-center gap-1.5 bg-surface-container-low text-on-surface hover:bg-surface-container font-label-md text-label-md">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span class="hidden md:inline">Uygulamayı Yükle</span>
+      </button>
+      <button data-theme-toggle onclick="toggleTheme()" class="w-9 h-9 rounded-lg flex items-center justify-center bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Tema Modu Değiştir" type="button">
+        <span data-theme-icon class="material-symbols-outlined text-[19px]">dark_mode</span>
+      </button>
+      {% if role == 'staff' %}
+      <button onclick="openQrModal()" class="w-9 h-9 rounded-lg flex items-center justify-center bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container" title="Damga QR'ı Göster (tek kullanımlık)" type="button">
+        <span class="material-symbols-outlined text-[20px]">qr_code_2</span>
+      </button>
+      {% endif %}
+      <div class="flex items-center gap-space-sm pl-space-xs">
+        <div class="hidden md:flex flex-col text-right">
+          <span class="font-label-md text-label-md text-on-surface leading-tight">{{ session_name or ('Müdür' if role == 'manager' else 'Kasiyer') }}</span>
+          <span class="font-label-sm text-label-sm text-secondary leading-tight uppercase font-semibold">{{ 'Müdür' if role == 'manager' else 'Kasiyer / Personel' }}</span>
+        </div>
+        <button type="button" onclick="logout()" title="Güvenli Çıkış" class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary hover:opacity-85 shadow-sm transition-opacity">
+          <span class="material-symbols-outlined text-[17px]">logout</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>

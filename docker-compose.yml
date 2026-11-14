@@ -1,0 +1,64 @@
+services:
+  sadakat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sadakat
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    # Konteyner içindeki süreç setuid ikililerle yetki yükseltemez
+    security_opt:
+      - no-new-privileges:true
+    # Konteyner günlükleri sınırsız büyüyüp sunucu diskini doldurmasın (10 MB x 3 dosya)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Süreç/iş parçacığı patlamasına karşı üst sınır (SB-06)
+    pids_limit: 512
+    # Uygulama yanıt veriyor mu? (yalnızca durum gösterir; otomatik yeniden başlatma yapmaz). Salt okunur uç kullanılır.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/push/public-key', timeout=4).status == 200 else 1)"]
+      interval: 60s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - ./data:/data
+      - ./data/uploads:/app/app/static/uploads
+    environment:
+      - DATA_DIR=/data
+      - SECRET_KEY=${SECRET_KEY}
+      - MANAGER_PASSWORD=${MANAGER_PASSWORD:-}
+      - STAFF_PASSWORD=${STAFF_PASSWORD:-}
+      - STAMP_SEAL_TOKEN=${STAMP_SEAL_TOKEN:-}
+      # Marka ve program varsayılanları (.env üzerinden belirlenir; sonra Müdür Panelinden güncellenir)
+      - BUSINESS_NAME=${BUSINESS_NAME:-Kahve Dükkanım}
+      - ACCENT_COLOR=${ACCENT_COLOR:-#1E4D3F}
+      - REWARD_NAME=${REWARD_NAME:-1 İkram El Yapımı Kahve}
+      - STAMP_TARGET=${STAMP_TARGET:-5}
+      # Herkese açık adres ve alt yol: .env üzerinden ayarlanır (alt yol yoksa PUBLIC_BASE_PATH boş bırakılır)
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://localhost:8000}
+      - PUBLIC_BASE_PATH=${PUBLIC_BASE_PATH-}
+      # Cloudflare Pages / Worker kenar vekili (isteğe bağlı)
+      - EDGE_DEFAULT_HOST=${EDGE_DEFAULT_HOST:-}
+      - EDGE_ALLOWED_HOSTS=${EDGE_ALLOWED_HOSTS:-}
+      - EDGE_SHARED_SECRET=${EDGE_SHARED_SECRET:-}
+      - EXTRA_PUBLIC_HOSTS=${EXTRA_PUBLIC_HOSTS:-}
+      # Web Push VAPID anahtarları (isteğe bağlı)
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@example.com}
+      # PostgreSQL & Directus entegrasyonu (varsayılan olarak kapalı; yalnızca ENABLE_DIRECTUS_SYNC=1 iken aktif)
+      - ENABLE_DIRECTUS_SYNC=${ENABLE_DIRECTUS_SYNC:-0}
+      - PG_HOST=${PG_HOST:-db}
+      - PG_PORT=${PG_PORT:-5432}
+      - PG_DB=${PG_DB:-directus}
+      - PG_USER=${PG_USER:-directus}
+      - PG_PASSWORD=${PG_PASSWORD:-}
+      - DIRECTUS_INTERNAL_URL=${DIRECTUS_INTERNAL_URL:-http://directus:8055}
+      - DIRECTUS_ADMIN_EMAIL=${DIRECTUS_ADMIN_EMAIL:-}
+      - DIRECTUS_ADMIN_PASSWORD=${DIRECTUS_ADMIN_PASSWORD:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}

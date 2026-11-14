@@ -1,0 +1,2230 @@
+<!DOCTYPE html>
+<html class="light" lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="{{ accent_color }}" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>{{ business_name }} — Sadakat Kartı</title>
+  <link rel="manifest" href="{{ rel_base }}manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="{{ rel_base }}static/img/icon-192.png" />
+  <link rel="apple-touch-icon" href="{{ rel_base }}static/img/icon-192.png" />
+  <!-- Tüm font ve CSS dosyaları kendi sunucumuzdan sunulur (yurt dışı istek yok) -->
+  <link rel="stylesheet" href="{{ rel_base }}static/css/fonts.css?v={{ asset_v }}" />
+  <link rel="stylesheet" href="{{ rel_base }}static/css/app.css?v={{ asset_v }}" />
+  <script>
+    // Uygulama (standalone) modunu sayfa çizilmeden önce işaretle: QR okutucu yalnızca uygulamada görünür.
+    (function () {
+      try {
+        var dm = ["standalone", "fullscreen", "minimal-ui"].some(function (m) { try { return window.matchMedia("(display-mode: " + m + ")").matches; } catch (e) { return false; } });
+        if (dm || window.navigator.standalone === true) {
+          document.documentElement.classList.add("is-standalone");
+        }
+      } catch (e) {}
+    })();
+    // Uygulama yükleme penceresi (Chrome / Edge / Samsung Internet / Opera): olay sayfa yüklenirken erkenden gelebilir;
+    // kaçmasın diye sayfanın en başında yakalanır, "Uygulamayı Yükle"ye dokununca doğrudan tarayıcının penceresi açılır.
+    window.deferredPwaPrompt = null;
+    window.addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      window.deferredPwaPrompt = e;
+      try { window.dispatchEvent(new Event("m1-installable")); } catch (err) {}
+    });
+  </script>
+</head>
+<body class="bg-surface text-on-surface antialiased selection:bg-secondary-container selection:text-on-secondary-container">
+
+  <!-- ÜST BİLDİRİM (TOAST): modalların da üstünde (z 100001) -->
+  <!-- Bildirimin herhangi bir yerine dokunmak onu kapatır (yalnızca küçük ✕ değil). -->
+  <div id="toast-banner" role="status" onclick="hideToast()" style="z-index:100001;cursor:pointer" class="fixed top-4 left-1/2 -translate-x-1/2 hidden max-w-sm w-[92%] rounded-2xl px-4 py-3.5 shadow-xl border border-outline-variant/30 transition-all duration-300">
+    <div class="flex items-center gap-3">
+      <span id="toast-icon" class="material-symbols-outlined text-xl">check_circle</span>
+      <p id="toast-text" class="text-sm font-medium flex-1"></p>
+      <button type="button" aria-label="Bildirimi kapat" style="min-width:2rem;min-height:2rem;font-size:14px" class="opacity-70 hover:opacity-100">✕</button>
+    </div>
+  </div>
+
+  <!-- Katman (z-index) düzeni + onay kutusu / bildirim durumu stilleri. Tailwind derlemesine bağlı DEĞİL (z-[125] gibi keyfi
+       sınıflar app.css'te üretilmemişti; modal z-index'siz kalıp sadakat kartının altında görünüyordu). -->
+  <style>
+    /* 1. Sadakat kartı kendi yığın bağlamında kalır: içindeki z-10 katmanlar (damgalar, "SADAKAT KARTIM") modalların üstüne çıkamaz */
+    .loyalty-card { position: relative; z-index: 1 !important; isolation: isolate; }
+    .stamp-grid, .stamp-item { position: relative; z-index: 1 !important; }
+    /* 2. Tüm modallar <body> kökünde, en üst katmanda. Görünürlük hidden/flex sınıflarıyla yönetilir (burada display yok). */
+    .modal-overlay, [role="dialog"] { position: fixed !important; inset: 0 !important; z-index: 99999 !important; }
+    /* Eski iOS Safari'de `inset` yoktur: dört kenar ayrıca verilir */
+    .modal-overlay, [role="dialog"] { top: 0; right: 0; bottom: 0; left: 0; }
+    .modal-overlay { isolation: isolate; background: rgba(15, 23, 20, 0.65); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    .modal-overlay .modal-content { position: relative; z-index: 1; }
+    /* 3. Kayıt ekranı: iki ZORUNLU onay kutusu, birebir aynı tasarım (ADR-23) */
+    .consent-container { display: flex; flex-direction: column; gap: 10px; }
+    .consent-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #f4f6f5; border: 1px solid #e2e8e5; border-radius: 14px; cursor: pointer; user-select: none; -webkit-user-select: none; font-size: 14px; line-height: 1.4; color: #1f2d27; }
+    /* Renkler sabit yeşil (#164e3f): uygulamanın derlenmiş paletiyle aynı. accent_color canlıda turuncu olabildiği
+       için (yalnızca theme-color'da kullanılır) burada kullanılmaz; "Bildirimler Açık" daima yeşil görünür. */
+    .consent-card input.consent-checkbox { width: 20px; height: 20px; accent-color: #164e3f; cursor: pointer; flex-shrink: 0; }
+    .consent-text .consent-link { color: #164e3f; font-weight: 600; text-decoration: underline; }
+    .optional-badge { font-weight: 500; font-size: 12px; color: #5c7269; white-space: nowrap; }
+    /* Profil › Kampanya Bildirimleri: ticari ileti onayını geri alma/yeniden verme anahtarı (ETK m.8) */
+    .notif-switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
+    .notif-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .notif-slider { position: absolute; cursor: pointer; inset: 0; background-color: #cbd5e1; transition: .25s; border-radius: 34px; }
+    .notif-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: #fff; transition: .25s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0, 0, 0, .2); }
+    .notif-switch input:checked + .notif-slider { background-color: #164e3f; }
+    .notif-switch input:checked + .notif-slider:before { transform: translateX(20px); }
+    .notif-switch input:focus-visible + .notif-slider { outline: 2px solid #164e3f; outline-offset: 2px; }
+    .notif-switch input:disabled + .notif-slider { opacity: .55; cursor: default; }
+    /* 4. Bildirim durumu: tek doğru tarayıcının gerçek izni; açıkken "✅ Açık" rozeti (tıklanamaz), kapatma düğmesi yok */
+    .notif-status-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 14px; background: #f4f7f5; border: 1.5px solid #d5e2dc; }
+    .notif-status-box.is-active { background: #eaf5f0; border-color: #164e3f; }
+    .notif-status-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .notif-status-icon { font-size: 20px; line-height: 1; }
+    .notif-status-title { font-weight: 700; font-size: 14px; color: #164e3f; }
+    .notif-status-desc { font-size: 12.5px; color: #4a635a; margin-top: 2px; line-height: 1.35; }
+    .notif-action-btn { background: #164e3f; color: #fff; border: none; border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: opacity .2s; }
+    .notif-action-btn.is-granted { background: #d1fae5; color: #065f46; cursor: default; pointer-events: none; }
+    /* 5. Üst bar bildirim zili: kapalıyken dokununca izin ister; açıkken yalnızca durum rozeti (tıklanamaz) */
+    .in-app-notif-control { background: rgba(27, 77, 62, .08); color: #164e3f; transition: background .2s ease; }
+    .in-app-notif-control.is-on { background: rgba(27, 77, 62, .18); cursor: default; }
+    .in-app-notif-control:focus-visible { outline: 2px solid #164e3f; outline-offset: 2px; }
+  </style>
+  <!-- ========================================================= -->
+  <!-- 1. TELEFON NUMARASI İLE GİRİŞ / KAYIT EKRANI              -->
+  <!-- ========================================================= -->
+  <section id="auth-screen" class="min-h-dvh flex flex-col justify-between relative overflow-hidden px-6 py-10 max-w-md mx-auto {% if has_device or initial_tab == 'qrokut' or guest_mode %}hidden{% endif %}">
+    <div class="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-secondary-container/25 blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/3 -left-24 w-64 h-64 rounded-full bg-primary-container/10 blur-3xl pointer-events-none"></div>
+
+    <div class="w-full pt-4 z-10 flex items-center justify-between">
+      <span class="font-headline italic text-2xl tracking-tight text-primary font-semibold" id="auth-brand-title">{{ business_name }}</span>
+    </div>
+
+    <main class="w-full my-auto py-6 z-10">
+      <div class="mb-6 text-left">
+        <div class="inline-flex items-center justify-center w-16 h-20 mb-4 bg-surface-low cafe-arch shadow-sm border border-outline-variant/25">
+          <span class="material-symbols-outlined text-primary text-3xl">local_cafe</span>
+        </div>
+        <h1 class="font-headline text-4xl font-normal tracking-tight text-on-surface leading-[1.15] mb-3">
+          Kahve keyfiniz <br /><span class="italic font-serif-editorial text-primary">kaldığı yerden.</span>
+        </h1>
+        <p class="text-on-surface-variant text-sm leading-relaxed">
+          Numaranı yaz, seni tanıyalım. Telefon numaranızı bir kez girin; cihazınız kalıcı olarak tanınır ve sonraki QR okutmalarda tekrar numara sorulmaz.
+        </p>
+      </div>
+
+      <div id="auth-pending-claim-box" class="{% if not initial_claim_token %}hidden{% endif %} mb-5 p-4 rounded-2xl bg-secondary-container/50 border border-secondary/20 flex items-center gap-3">
+        <span class="material-symbols-outlined text-primary text-2xl">verified</span>
+        <div class="text-xs text-on-surface">
+          <p class="font-bold text-primary">Damganız hazır!</p>
+          <p>Telefon numaranızı bir kez girin: hesabınız açılır ve bu okutmanın damgası hemen işlenir.</p>
+        </div>
+      </div>
+
+      <div id="auth-gift-note" class="{% if initial_claim_token %}hidden{% endif %} mb-5 p-4 rounded-2xl bg-secondary-container/50 border border-secondary/20 flex items-center gap-3">
+        <span class="material-symbols-outlined text-primary text-2xl">redeem</span>
+        <div class="text-xs text-on-surface">
+          <p class="font-bold text-primary">Kayıt hediyesi: +1 damga</p>
+          <p>Yeni üye olarak kayıt olunca kartına 1 damga hediye eklenir.{% if entry == 'kayit' %} Bu QR yalnızca uygulamayı açar ve kayıt içindir; satın alma damgası kasadaki “Damga” QR'ından alınır.{% endif %}</p>
+        </div>
+      </div>
+
+      <form id="phone-login-form" class="space-y-4" onsubmit="handlePhoneLogin(event)">
+        <!-- ADR-47: kayıtta ad-soyad zorunlu (mevcut müşteri adı değişmez; otomatik adlı hesap bu adı alır) -->
+        <div class="space-y-2">
+          <label for="login-name-input" class="block font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold">Adınız Soyadınız</label>
+          <div class="relative flex items-center bg-surface-highest/70 rounded-2xl transition-all duration-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/30 border border-outline-variant/30">
+            <input id="login-name-input" type="text" autocomplete="name" autocapitalize="words" required maxlength="40" placeholder="Ayşe Yılmaz"
+              class="w-full bg-transparent border-none py-4 px-4 text-on-surface placeholder:text-outline/60 focus:ring-0 font-body text-lg font-semibold" />
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label for="login-phone-input" class="block font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold">Cep Telefonu Numaranız</label>
+          <div class="relative flex items-center bg-surface-highest/70 rounded-2xl transition-all duration-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/30 border border-outline-variant/30">
+            <div class="pl-4 pr-3 py-4 flex items-center gap-1.5 border-r border-outline-variant/30 text-on-surface font-semibold text-sm">
+              <span>🇹🇷</span><span>+90</span>
+            </div>
+            <input id="login-phone-input" type="tel" inputmode="numeric" autocomplete="tel" required maxlength="14" placeholder="5XX XXX XX XX"
+              class="w-full bg-transparent border-none py-4 px-4 text-on-surface placeholder:text-outline/60 focus:ring-0 font-body text-lg tracking-wide font-semibold" />
+          </div>
+          <p id="login-error-msg" class="text-xs text-error font-medium hidden pt-1"></p>
+        </div>
+
+        <!-- ADR-24 (yasal düzeltme): Aydınlatma teyidi zorunlu; Açık Rıza + Ticari Elektronik İleti onayı İSTEĞE BAĞLI ve önceden
+             işaretsiz (hizmet şartına bağlanan açık rıza geçersizdir). Aynı tasarım. Bildirim izni kayıt ekranında istenmez; site içindeki
+             "Bildirimleri Aç" tarayıcının kendi izin penceresini açar. Metin bağlantısı (etiket içindeki etkileşimli öğe)
+             kutuyu işaretlemez, yalnızca metni açar; <a> satır içi aktığı için uzun başlık cümleyi bölmez. -->
+        <div class="consent-container">
+          <label class="consent-card">
+            <input id="consent-kvkk" type="checkbox" class="consent-checkbox" required onchange="updateLoginBtn()" />
+            <span class="consent-text"><a href="#" onclick="event.preventDefault(); event.stopPropagation(); openKvkkModal();" class="consent-link">Aydınlatma Metni</a>'ni okudum ve anladım.</span>
+          </label>
+          <label class="consent-card">
+            <input id="consent-marketing" type="checkbox" class="consent-checkbox" onchange="updateLoginBtn()" />
+            <span class="consent-text"><a href="#" onclick="event.preventDefault(); event.stopPropagation(); openMarketingModal();" class="consent-link">Açık Rıza ve Ticari Elektronik İleti Onay Metni</a>'ni okudum ve onaylıyorum. <span class="optional-badge">(İsteğe bağlı)</span></span>
+          </label>
+        </div>
+
+        <button id="login-submit-btn" type="submit" disabled
+          class="w-full py-4 px-6 rounded-full emerald-pass-gradient text-on-primary font-label font-semibold text-base shadow-lg shadow-primary/15 hover:opacity-95 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group disabled:opacity-50">
+          <span id="login-submit-text">{% if initial_claim_token %}Kayıt Ol ve Damgamı Al{% else %}Devam Et ve Kartımı Aç{% endif %}</span>
+          <span class="material-symbols-outlined text-xl transition-transform group-hover:translate-x-1">arrow_forward</span>
+        </button>
+      </form>
+    </main>
+
+    <footer class="w-full text-center z-10 pb-2">
+      <p class="text-[11px] text-on-surface-variant/80">Devam etmek için yalnızca Aydınlatma Metni'ni onaylamanız yeterlidir; ikinci onay isteğe bağlıdır.</p>
+      <p class="text-[11px] text-on-surface-variant/80 mt-1">Kayıt olarak <a href="#" onclick="event.preventDefault(); openTermsModal();" class="underline">Sadakat Programı Koşulları</a>'nı kabul edersin.</p>
+    </footer>
+  </section>
+
+  <!-- ========================================================= -->
+  <!-- 2. ANA UYGULAMA EKRANI                                    -->
+  <!-- ========================================================= -->
+  <div id="main-app-screen" class="{% if not has_device and initial_tab != 'qrokut' and not guest_mode %}hidden{% endif %} min-h-dvh pb-28 max-w-md mx-auto relative">
+
+    <header class="sticky top-0 z-40 glass-nav border-b border-outline-variant/15 px-6 py-4 flex justify-between items-center">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 shrink-0 rounded-full bg-surface-low border border-outline-variant/30 flex items-center justify-center shadow-sm overflow-hidden">
+          <img id="header-logo" src="{{ rel_base }}static/img/icon-192.png" class="w-full h-full object-cover" alt="" />
+          <span id="header-logo-icon" class="hidden material-symbols-outlined text-lg">local_cafe</span>
+        </div>
+        <div class="min-w-0">
+          <span class="font-headline italic text-xl font-bold text-primary tracking-tight block leading-none truncate" id="header-business-name">{{ business_name }}</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- Bildirim durumu (ADR-23): kapalıyken dokununca tarayıcının kendi izin penceresi açılır; izin 'granted' ise yalnızca
+             "açık" rozeti (tıklanamaz). Kapatma işlevi yok; tarayıcı/telefon ayarlarına yönlendirme yok. -->
+        <button type="button" data-member aria-label="Bildirimleri aç" title="Bildirimleri aç" onclick="requestNotificationAndRewardStamp()" class="js-notif-bell in-app-notif-control hidden w-10 h-10 rounded-full inline-flex items-center justify-center">
+          <span class="js-notif-icon text-[18px] leading-none" aria-hidden="true">🔕</span>
+        </button>
+        <!-- QR okutucu yalnızca yüklenmiş uygulamada (standalone) görünür -->
+        <button type="button" onclick="switchTab('qrokut');" title="QR Okut" class="so-flex w-10 h-10 rounded-full bg-secondary-container/70 text-primary items-center justify-center hover:bg-secondary-container transition-colors">
+          <span class="material-symbols-outlined text-[20px]">qr_code_scanner</span>
+        </button>
+        <button type="button" onclick="handleHeaderUserClick()" class="px-3 py-1.5 rounded-full bg-surface-low border border-outline-variant/30 flex items-center gap-1.5 text-xs font-semibold text-primary hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[16px]">person</span>
+          <span id="header-user-badge">Giriş</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- SEKME: ANA SAYFA -->
+    <main id="tab-home" class="px-5 pt-6 space-y-6">
+      <section class="flex items-end justify-between">
+        <div>
+          <p class="font-label text-xs uppercase tracking-widest text-on-surface-variant mb-1">Hoş Geldiniz</p>
+          <h2 class="font-headline text-3xl font-semibold text-primary leading-tight">
+            <span id="home-greeting">Merhaba</span>
+          </h2>
+        </div>
+        <div class="text-right" data-member>
+          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-tertiary-container text-tertiary text-xs font-bold">
+            <span class="material-symbols-outlined text-sm material-symbols-filled">redeem</span>
+            <span id="home-reward-count">0</span> Ödül
+          </span>
+        </div>
+      </section>
+
+      <!-- 🎉 Hediye hakkı hazır: kasada personele haber ver -->
+      <section id="home-gift-ready" class="hidden rounded-3xl bg-secondary-container border-2 border-primary p-5 space-y-3">
+        <div class="flex items-start gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-white text-primary flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-3xl material-symbols-filled">redeem</span></div>
+          <div>
+            <h3 class="font-headline text-xl font-bold text-primary leading-tight">🎉 Tebrikler, Hediye Kahveniz Hazır!</h3>
+            <p class="text-sm text-on-secondary-container mt-1 leading-snug">Kasada ödeme yaparken personeli bilgilendirin; telefon numaranızı veya kullanıcı adınızı söyleyerek hediyenizi hemen alabilirsiniz.</p>
+          </div>
+        </div>
+        <button type="button" onclick="switchTab('profil')" class="w-full py-3 rounded-full bg-primary text-white font-label font-bold text-sm active:scale-[0.98] transition-all">Kullanıcı adım ve telefonum</button>
+      </section>
+
+      <!-- Misafir (kayıtsız / QR2 ile gelen) kartı -->
+      <section data-guest class="rounded-3xl bg-surface-low border border-outline-variant/30 p-6 space-y-3">
+        <h3 class="font-headline text-2xl text-primary">Sadakat kartını başlat ☕</h3>
+        <p class="text-xs text-on-surface-variant leading-relaxed">Her <span class="stamp-target-txt">5</span> kahvede 1 ikram. Kayıt için kasadaki QR kodu okut veya numaranla giriş yap.</p>
+        <button type="button" onclick="showAuthScreen()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Giriş Yap / Kayıt Ol</button>
+      </section>
+
+      <!-- Sadakat kartı özeti -->
+      <section data-member class="loyalty-card hidden relative overflow-hidden rounded-3xl emerald-pass-gradient text-on-primary p-6 shadow-[0_16px_36px_rgba(0,54,41,0.18)]">
+        <div class="relative z-10">
+          <div class="flex justify-between items-start mb-5">
+            <div>
+              <span class="font-label text-[10px] uppercase tracking-[0.2em] text-on-primary-container block mb-1">SADAKAT KARTIM</span>
+              <h3 class="font-headline text-2xl font-medium" id="home-reward-title">{{ reward_name }}</h3>
+            </div>
+            <div class="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15">
+              <span id="home-stamp-counter" class="font-label text-sm font-bold tracking-wider">0 / {{ stamp_target }}</span>
+            </div>
+          </div>
+          <div id="home-stamp-slots" class="stamp-grid grid grid-cols-5 gap-2.5 my-5"></div>
+          <div class="flex items-center justify-between pt-2 border-t border-white/10">
+            <p id="home-stamp-status-text" class="text-xs text-on-primary-container font-medium">Damga için kasadaki QR'ı okutun.</p>
+            <button type="button" onclick="switchTab('qrokut');" class="so-flex px-4 py-2 rounded-full bg-secondary-container text-on-secondary-container font-label font-bold text-xs items-center gap-1.5 shadow-sm active:scale-95 transition-transform">
+              <span class="material-symbols-outlined text-base">photo_camera</span><span>QR Okut</span>
+            </button>
+          </div>
+        </div>
+        <div class="absolute -right-10 -bottom-10 w-44 h-44 bg-primary-container/40 rounded-full blur-2xl pointer-events-none"></div>
+      </section>
+
+      <!-- ADR-36: "Bildirimleri Aç" ile paketli verilmiş eski kampanya onayı geçersiz sayılan müşteriye BİR KEZ sakin, kapatılabilir
+           kart (pop-up yok). Evet / Hayır kalıcı kanıtla (kanal reconfirm_card) kaydedilir; × cevap vermeden kapatır. -->
+      <section id="home-reconfirm-card" class="hidden rounded-3xl bg-surface-low border border-outline-variant/30 px-4 py-4 space-y-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="space-y-1">
+            <p class="font-headline text-base font-semibold text-primary leading-snug">Kampanya bildirimleri almak ister misin?</p>
+            <p class="text-xs text-on-surface-variant leading-snug">Daha önce bildirimleri açarken bu konuda ayrıca sorulmamıştı. İstersen indirim ve fırsat duyurularını (ticari ileti) de gönderelim; istemezsen yalnızca damga ve ödül bildirimleri gelir. İstediğin an Profil › Kampanya Bildirimleri'nden değiştirebilirsin.</p>
+          </div>
+          <button type="button" onclick="answerReconfirm('dismiss')" aria-label="Kapat" class="shrink-0 w-8 h-8 rounded-full text-on-surface-variant inline-flex items-center justify-center"><span class="material-symbols-outlined text-lg">close</span></button>
+        </div>
+        <div class="flex gap-2">
+          <button id="reconfirm-yes-btn" type="button" onclick="answerReconfirm('yes')" class="flex-1 py-2.5 px-3 rounded-full bg-primary text-white font-label font-semibold text-xs active:scale-[0.98] transition-all">Evet, gönderin</button>
+          <button id="reconfirm-no-btn" type="button" onclick="answerReconfirm('no')" class="flex-1 py-2.5 px-3 rounded-full border border-primary/40 text-primary font-label font-semibold text-xs active:scale-[0.98] transition-all">Hayır, teşekkürler</button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant leading-snug"><button type="button" onclick="openMarketingModal()" class="underline">Açık Rıza ve Ticari Elektronik İleti Onay Metni</button></p>
+      </section>
+
+      <!-- Zorlamayan bildirim teklifi: ekranı kapatmaz; "Bildirimleri Aç" tarayıcının kendi resmî izin penceresini (Notification.requestPermission) açar.
+           +1 Hediye Damga YALNIZCA izin 'granted' dönerse ve hak daha önce kullanılmadıysa (anında) verilir. -->
+      <section id="home-notif-offer" class="hidden rounded-3xl bg-secondary-container/50 border border-secondary/25 px-4 py-4 space-y-3">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl leading-none" aria-hidden="true">🔔</span>
+          <div class="space-y-1">
+            <p class="font-headline text-base font-semibold text-primary leading-snug">Bildirimleri aç, +1 Hediye Damga kazan</p>
+            <p class="text-xs text-on-surface-variant leading-snug">Damga ve ödül durumunda haberin olsun. İzin verdiğin an hesabına <strong>+1 Hediye Damga</strong> eklenir; bu hediye kampanya bildirimi onayına bağlı değildir.</p>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button id="notif-offer-btn" type="button" onclick="requestNotificationAndRewardStamp()" class="flex-1 py-2.5 px-3 rounded-full bg-primary text-white font-label font-semibold text-xs active:scale-[0.98] transition-all">🔔 Bildirimleri Aç</button>
+          <button type="button" onclick="dismissNotifOffer()" class="py-2.5 px-4 rounded-full text-on-surface-variant font-label font-semibold text-xs">Şimdi değil</button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant leading-snug">"Bildirimleri Aç" yalnızca tarayıcı iznini ister; kampanya bildirimi onayı vermiş olmazsın. Kampanya bildirimleri ayrı ve isteğe bağlıdır; Profil › Kampanya Bildirimleri'nden istediğin an açıp geri alabilirsin.</p>
+      </section>
+
+      <!-- Sakin birleşik durum kartı: yalnızca bildirim kapalıysa / uygulama yüklü değilse görünür; engelleyici pencere yok -->
+      <section id="home-engage-card" class="hidden rounded-3xl bg-surface-low border border-outline-variant/30 px-4 py-3.5 space-y-3">
+        <p class="text-xs text-on-surface-variant leading-snug">Fırsatları ve hediye kahveni kaçırmamak için bildirimleri açık tutabilir, tek tıkla ana ekrana ekleyebilirsin.</p>
+        <p class="text-[10px] text-on-surface-variant leading-snug">Bildirimleri açmak kampanya bildirimi onayı sayılmaz; kampanya bildirimleri ayrı ve isteğe bağlıdır (Profil › Kampanya Bildirimleri).</p>
+        <button type="button" onclick="openHelp()" class="text-[11px] text-primary underline">Bildirim ya da yüklemede sorun mu var? Yardım</button>
+        <div class="flex gap-2">
+          <button id="engage-notif-btn" type="button" onclick="requestNotificationAndRewardStamp()" class="hidden flex-1 py-2.5 px-3 rounded-full bg-primary text-white font-label font-semibold text-xs active:scale-[0.98] transition-all">🔔 Bildirimleri Aç</button>
+          <div id="engage-notif-ok" class="hidden flex-1 py-2.5 px-3 rounded-full bg-secondary-container/60 text-primary font-label font-semibold text-xs text-center">✅ Bildirimler açık</div>
+          <button id="engage-install-btn" type="button" onclick="installApp()" class="hidden flex-1 py-2.5 px-3 rounded-full border border-primary/40 text-primary font-label font-semibold text-xs active:scale-[0.98] transition-all">📲 Uygulamayı Yükle</button>
+        </div>
+        <div id="engage-install-guide" class="hidden rounded-2xl bg-white/60 border border-outline-variant/30 p-3 space-y-1.5">
+          <p class="text-[11px] text-on-surface-variant">Bu bir web uygulamasıdır; dosya indirmez, güvenle telefonunuza eklenir.</p>
+          <ol id="pwa-guide-steps" class="text-xs text-on-surface space-y-1 list-decimal ml-4"></ol>
+          <p class="text-[11px] text-on-surface-variant">Zaten eklediysen ana ekrandaki simgeden açabilirsin.</p>
+          <button type="button" onclick="openHelp('install')" class="text-[11px] text-primary underline">Seçenek görünmüyor mu? Adım adım yardım</button>
+        </div>
+      </section>
+
+      <section class="space-y-4">
+        <div class="flex justify-between items-baseline">
+          <h3 class="font-headline text-2xl text-primary font-semibold">Kampanyalar &amp; Duyurular</h3>
+          <button type="button" onclick="switchTab('kampanyalar')" class="font-label text-xs font-semibold text-secondary uppercase tracking-wider">Tümünü Gör</button>
+        </div>
+        <div id="home-campaigns-list" class="space-y-4"></div>
+      </section>
+    </main>
+
+    <!-- SEKME: KARTIM -->
+    <main id="tab-kartim" class="px-5 pt-6 space-y-6 hidden">
+      <section data-guest class="rounded-3xl bg-surface-low border border-outline-variant/30 p-6 space-y-3 text-center">
+        <span class="material-symbols-outlined text-4xl text-primary">loyalty</span>
+        <p class="text-sm text-on-surface-variant">Sadakat kartını görmek için giriş yap veya kasadaki QR kodu okut.</p>
+        <button type="button" onclick="showAuthScreen()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Giriş Yap / Kayıt Ol</button>
+      </section>
+
+      <div data-member class="hidden space-y-6">
+        <section>
+          <span class="font-label text-xs uppercase tracking-[0.15em] text-secondary font-semibold block mb-1">DİJİTAL SADAKAT KARTI</span>
+          <div class="flex items-baseline justify-between">
+            <h2 class="font-headline text-3xl text-primary font-normal leading-tight">Kahve <span class="italic font-serif-editorial">Mühürleriniz</span></h2>
+            <span class="text-xs font-semibold text-on-surface-variant">Günlük Limit: <strong id="card-daily-limit">2</strong> damga</span>
+          </div>
+        </section>
+
+        <section class="loyalty-card relative overflow-hidden rounded-3xl emerald-pass-gradient p-6 text-on-primary shadow-xl">
+          <div class="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/5 blur-2xl pointer-events-none"></div>
+          <div class="relative z-10 flex justify-between items-start mb-6">
+            <div>
+              <p class="font-label text-[11px] uppercase tracking-widest text-on-primary-container mb-1" id="card-member-name">Sadakat Kartım</p>
+              <h3 class="font-headline text-2xl text-white" id="card-reward-name">{{ reward_name }}</h3>
+            </div>
+            <div class="bg-white/15 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/15">
+              <span id="card-stamp-fraction" class="font-label text-sm font-bold text-secondary-container">0 / {{ stamp_target }} Damga</span>
+            </div>
+          </div>
+          <div id="card-stamp-grid" class="stamp-grid grid grid-cols-5 gap-3 mb-6"></div>
+          <div class="relative z-10 flex items-center justify-between pt-4 border-t border-white/15">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary-container text-xl material-symbols-filled">stars</span>
+              <p id="card-remaining-text" class="font-body text-xs text-on-primary-container">Ücretsiz kahvenize <strong class="text-white">5 damga</strong> kaldı.</p>
+            </div>
+            <span id="card-usable-badge" class="px-3 py-1 rounded-full bg-tertiary-container text-tertiary font-bold text-xs">0 Ödül Hazır</span>
+          </div>
+        </section>
+
+        <section id="usable-rewards-section" class="hidden bg-tertiary-container/45 border border-brass/40 rounded-3xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="material-symbols-outlined text-tertiary text-2xl material-symbols-filled">workspace_premium</span>
+              <div>
+                <h4 class="font-headline text-lg font-semibold text-tertiary">🎉 Tebrikler, Hediye Kahveniz Hazır!</h4>
+                <p class="text-xs text-on-surface-variant">Kasada ödeme yaparken personeli bilgilendirin; telefon numaranızı veya kullanıcı adınızı söyleyerek hediyenizi hemen alabilirsiniz.</p>
+              </div>
+            </div>
+            <span id="usable-rewards-count-pill" class="px-3 py-1 rounded-full bg-tertiary text-white text-xs font-bold">1 Bilet</span>
+          </div>
+        </section>
+
+        <!-- Uygulamada: kamera ile QR okut. Normal tarayıcıda: telefonun kendi kamerasını kullan -->
+        <section class="so-flex bg-surface-low rounded-3xl p-6 border border-outline-variant/30 shadow-sm space-y-3 flex-col">
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 cafe-arch emerald-pass-gradient text-white flex items-center justify-center shadow-md"><span class="material-symbols-outlined text-2xl">qr_code_scanner</span></div>
+            <div>
+              <h3 class="font-headline text-xl font-semibold text-primary">📷 QR Okut &amp; Damga Kazan</h3>
+              <p class="text-xs text-on-surface-variant">Kasadaki QR kodu okut, damgan anında eklensin.</p>
+            </div>
+          </div>
+          <button type="button" onclick="switchTab('qrokut');" class="w-full py-4 px-6 rounded-full emerald-pass-gradient text-on-primary font-label font-semibold text-sm shadow-lg shadow-primary/15 flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all">
+            <span class="material-symbols-outlined text-xl">photo_camera</span><span>Kamerayı Aç &amp; QR Okut</span>
+          </button>
+        </section>
+        <section class="bo-block bg-surface-low rounded-3xl p-5 border border-outline-variant/25 text-xs text-on-surface-variant leading-relaxed">
+          <p class="font-bold text-primary mb-1">Damga nasıl kazanılır?</p>
+          <p>Ödeme sonrası kasadaki QR'ı telefonunun kamerasıyla okut ya da NFC etiketine dokun; damgan otomatik eklenir. Günde en fazla <span class="daily-limit-txt">2</span> damga.</p>
+        </section>
+      </div>
+    </main>
+
+    <!-- SEKME: QR OKUT (yalnızca uygulamada) -->
+    <main id="tab-qrokut" class="px-5 pt-6 space-y-6 hidden">
+      <section>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-[10px] uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-bold">KASA QR OKUTUCU</span>
+          <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary"><span class="w-2 h-2 rounded-full bg-secondary animate-ping"></span>Canlı Kamera</span>
+        </div>
+        <h2 class="font-headline text-3xl text-primary font-normal leading-tight">Kasadaki <span class="italic font-serif-editorial">QR Kodu</span> Okutun</h2>
+        <p class="text-xs text-on-surface-variant mt-1 leading-relaxed">Kasadaki QR kodu kameranıza doğrultun. Damganız anında hesabınıza işlenir.</p>
+      </section>
+      <section class="relative overflow-hidden rounded-3xl bg-neutral-900 border-2 border-primary/30 shadow-2xl p-3 text-center">
+        <div id="dedicated-qr-reader" class="w-full min-h-[300px] rounded-2xl overflow-hidden bg-black flex items-center justify-center relative">
+          <div id="dedicated-qr-placeholder" class="text-white/60 p-6 flex flex-col items-center justify-center space-y-3">
+            <span class="material-symbols-outlined text-5xl text-secondary-container animate-pulse">qr_code_scanner</span>
+            <p class="text-xs font-medium">Kamera başlatılıyor...</p>
+          </div>
+        </div>
+        <div id="dedicated-scanner-laser" class="pointer-events-none absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-gradient-to-r from-transparent via-secondary-container to-transparent shadow-[0_0_12px_#d2ee77] hidden"></div>
+        <div class="pt-3 pb-1 flex items-center justify-between gap-2 px-1">
+          <p id="dedicated-scanner-status" class="text-xs font-semibold text-white/80 truncate">Kamera hazır...</p>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="restartDedicatedQrScanner()" class="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1">
+              <span class="material-symbols-outlined text-sm">refresh</span><span>Yenile</span>
+            </button>
+            <button type="button" onclick="stopDedicatedQrScanner()" class="px-3 py-1.5 rounded-full bg-error/80 hover:bg-error text-white text-xs font-semibold flex items-center gap-1">
+              <span class="material-symbols-outlined text-sm">stop_circle</span><span>Kapat</span>
+            </button>
+          </div>
+        </div>
+      </section>
+      <section class="bg-surface-low rounded-3xl p-5 border border-outline-variant/25 text-xs text-on-surface-variant space-y-2">
+        <p class="font-bold text-primary flex items-center gap-1.5"><span class="material-symbols-outlined text-base">info</span><span>Nasıl Kullanılır?</span></p>
+        <p>1. Ödeme sonrası kasadaki <strong>QR kodu</strong> kamera çerçevesine tutun.</p>
+        <p>2. Kod otomatik okunur ve <strong>+1 Damganız</strong> eklenir.</p>
+        <p>3. Günlük en fazla <strong class="daily-limit-txt">2</strong> damga kazanabilirsiniz.</p>
+      </section>
+    </main>
+
+    <!-- SEKME: MENÜ -->
+    <main id="tab-menu" class="px-5 pt-6 space-y-6 hidden">
+      <section>
+        <span class="font-label text-xs uppercase tracking-[0.15em] text-secondary font-semibold block mb-1">MENÜ</span>
+        <h2 class="font-headline text-3xl text-primary font-normal">Bugünün <span class="italic">Lezzetleri</span></h2>
+        <p id="menu-note" class="text-[11px] text-on-surface-variant mt-1 leading-snug"></p>
+      </section>
+      <div id="menu-cats" class="flex gap-2 overflow-x-auto pb-1 -mx-5 px-5" style="scrollbar-width:none"></div>
+      <div id="menu-list" class="space-y-6"></div>
+
+
+    </main>
+
+    <!-- SEKME: KAMPANYALAR -->
+    <main id="tab-kampanyalar" class="px-5 pt-6 space-y-5 hidden">
+      <section>
+        <span class="font-label text-xs uppercase tracking-[0.15em] text-secondary font-semibold block mb-1">DUYURULAR</span>
+        <h2 class="font-headline text-3xl text-primary font-normal">Güncel <span class="italic">Kampanyalar</span></h2>
+      </section>
+      <div id="all-campaigns-list" class="space-y-4"></div>
+    </main>
+
+    <!-- SEKME: PROFİL -->
+    <main id="tab-profil" class="px-5 pt-6 space-y-6 hidden">
+      <section data-guest class="rounded-3xl bg-surface-low border border-outline-variant/30 p-6 space-y-3 text-center">
+        <p class="text-sm text-on-surface-variant">Profil için giriş yapın.</p>
+        <button type="button" onclick="showAuthScreen()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Giriş Yap / Kayıt Ol</button>
+      </section>
+
+      <div data-member class="hidden space-y-6">
+        <section class="bg-surface-low rounded-3xl p-6 border border-outline-variant/25 flex items-center gap-4">
+          <div class="w-16 h-20 cafe-arch emerald-pass-gradient text-white flex items-center justify-center font-headline text-2xl font-bold shadow-md" id="profile-avatar-initials">U1</div>
+          <div class="flex-1 min-w-0">
+            <span class="text-[10px] uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-bold">Aktif Üye</span>
+            <h2 id="profile-display-name" class="font-headline text-2xl font-semibold text-primary truncate mt-1">user1</h2>
+            <p id="profile-phone-formatted" class="font-label text-sm text-on-surface-variant font-medium">5XX XXX XX XX</p>
+          </div>
+        </section>
+
+        <section class="bg-surface-low rounded-3xl p-6 border border-outline-variant/25 space-y-4">
+          <div>
+            <h3 class="font-headline text-xl font-semibold text-primary">Kullanıcı Adı / Ad Soyad Güncelle</h3>
+            <p class="text-xs text-on-surface-variant mt-0.5">Varsayılan kullanıcı adınızı (<span id="profile-default-hint">user1</span>) dilediğiniz isimle değiştirebilirsiniz.</p>
+          </div>
+          <form id="profile-update-form" class="space-y-4" onsubmit="handleProfileUpdate(event)">
+            <div>
+              <label for="profile-name-input" class="block text-xs font-semibold uppercase tracking-wider text-on-surface-variant mb-1.5">Kullanıcı Adı veya Ad Soyad</label>
+              <input id="profile-name-input" type="text" required minlength="2" maxlength="50" placeholder="Örn: user1 veya Adınız Soyadınız"
+                class="w-full rounded-2xl bg-white border border-outline-variant/40 px-4 py-3.5 text-sm font-semibold text-on-surface focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            </div>
+            <button id="profile-save-btn" type="submit" class="w-full py-3.5 px-6 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm shadow-md flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+              <span class="material-symbols-outlined text-lg">save</span><span>Değişiklikleri Kaydet</span>
+            </button>
+          </form>
+        </section>
+
+        <!-- Bildirim durumu (ADR-23): tek doğru tarayıcının gerçek izni (Notification.permission). 'granted' ise her zaman
+             "Bildirimler Açık" + tıklanamaz "✅ Açık" rozeti; kapalıysa "Bildirimleri Aç" tarayıcının kendi izin penceresini
+             açar, izin verilirse (hak kullanılmadıysa) +1 hediye damga eklenir. Kapatma / abonelikten çıkma düğmesi YOK. -->
+        <div id="inAppNotificationBanner" class="notif-status-box">
+          <div class="notif-status-left">
+            <span id="notifStatusIcon" class="notif-status-icon" aria-hidden="true">🔕</span>
+            <div class="min-w-0" aria-live="polite">
+              <div id="notifStatusTitle" class="notif-status-title">Bildirimler Kapalı</div>
+              <div id="notifStatusDesc" class="notif-status-desc">Bildirimleri açarak anında haberdar ol!</div>
+            </div>
+          </div>
+          <button type="button" id="enableNotifBtn" class="notif-action-btn" onclick="requestNotificationAndRewardStamp()">Bildirimleri Aç</button>
+        </div>
+
+        <section class="bg-surface-low rounded-3xl p-4 border border-outline-variant/25 divide-y divide-outline-variant/20">
+          <!-- Kampanya (ticari ileti) onayı: yasal ret hakkı (ETK m.8). Yalnızca kampanya bildirimlerini yönetir; damga/ödül
+               bildirimleri tarayıcı iznine bağlıdır. Tarayıcı/telefon ayarına yönlendirme yok. -->
+          <label class="py-3.5 px-2 flex items-center justify-between gap-3 cursor-pointer">
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="material-symbols-outlined text-primary">campaign</span>
+              <div class="min-w-0">
+                <p id="campaignConsentTitle" class="text-sm font-semibold text-on-surface">Kampanya Bildirimleri</p>
+                <p id="campaignConsentDesc" class="text-xs text-on-surface-variant">Kampanya ve fırsat duyuruları (ticari ileti)</p>
+              </div>
+            </div>
+            <span class="notif-switch">
+              <input id="campaign-consent-switch" type="checkbox" role="switch" aria-labelledby="campaignConsentTitle" onchange="handleCampaignConsentToggle(event)" />
+              <span class="notif-slider"></span>
+            </span>
+          </label>
+          <button type="button" onclick="openKvkkModal()" class="w-full py-3.5 px-2 flex items-center justify-between text-left">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-primary">policy</span>
+              <div>
+                <p class="text-sm font-semibold text-on-surface">KVKK Aydınlatma Metni</p>
+                <p class="text-xs text-on-surface-variant">Hangi veriler, neden, ne kadar süre; çerezler ve haklarınız</p>
+              </div>
+            </div>
+            <span class="material-symbols-outlined text-outline">chevron_right</span>
+          </button>
+          <button type="button" onclick="openTermsModal()" class="w-full py-3.5 px-2 flex items-center justify-between text-left">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-primary">receipt_long</span>
+              <div>
+                <p class="text-sm font-semibold text-on-surface">Sadakat Programı Koşulları</p>
+                <p class="text-xs text-on-surface-variant">Damga, ödül ve programın işleyişi</p>
+              </div>
+            </div>
+            <span class="material-symbols-outlined text-outline">chevron_right</span>
+          </button>
+          <button type="button" onclick="openMarketingModal()" class="w-full py-3.5 px-2 flex items-center justify-between text-left">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-primary">campaign</span>
+              <div>
+                <p class="text-sm font-semibold text-on-surface">Açık Rıza ve Ticari İleti Onay Metni</p>
+                <p class="text-xs text-on-surface-variant">Yalnızca kampanya ve fırsat bildirimleri (isteğe bağlı)</p>
+              </div>
+            </div>
+            <span class="material-symbols-outlined text-outline">chevron_right</span>
+          </button>
+          <button type="button" id="export-my-data-btn" onclick="handleExportMyData()" class="w-full py-3.5 px-2 flex items-center justify-between text-left text-on-surface">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-primary">download</span>
+              <div>
+                <p class="text-sm font-semibold">Verilerimi İndir (KVKK)</p>
+                <p class="text-xs text-on-surface-variant">Hesabınıza bağlı kayıtların bir kopyasını dosya olarak indirir</p>
+              </div>
+            </div>
+            <span class="material-symbols-outlined text-outline">chevron_right</span>
+          </button>
+          <button type="button" onclick="handleDeleteMyData()" class="w-full py-3.5 px-2 flex items-center justify-between text-left text-error">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined">delete_forever</span>
+              <div>
+                <p class="text-sm font-semibold">Verilerimi ve Hesabımı Sil (KVKK)</p>
+                <p class="text-xs opacity-80">Hesabınızı ve kişisel verilerinizi siler (kötüye kullanımı önleme özeti hariç)</p>
+              </div>
+            </div>
+            <span class="material-symbols-outlined">chevron_right</span>
+          </button>
+        </section>
+
+        <div class="pt-2">
+          <button type="button" onclick="handleLogout()" class="w-full py-3.5 rounded-full border border-outline-variant/50 text-on-surface-variant font-label font-semibold text-xs uppercase tracking-widest hover:bg-surface-container transition-colors flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-base">logout</span><span>Cihaz Oturumunu Kapat</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Yardım (ADR-38): bildirim açamayan, uygulamayı yükleyemeyen ya da "güvenli değil" uyarısı görenler için yönlendirme.
+           Giriş yapmamış ziyaretçi de görür. Yeni Material ikonu kullanılmaz (font alt kümesi); emoji yeterli. -->
+      <section id="help-section" class="bg-surface-low rounded-3xl p-5 border border-outline-variant/25 space-y-3">
+        <div>
+          <h3 class="font-headline text-xl font-semibold text-primary">🛟 Sorun mu yaşıyorsun?</h3>
+          <p class="text-xs text-on-surface-variant mt-0.5">Bildirimleri açamıyor, uygulamayı yükleyemiyor ya da “güvenli değil” uyarısı görüyorsan adım adım çözüm.</p>
+          <p id="help-env" class="text-[11px] text-on-surface-variant mt-1"></p>
+        </div>
+        <div class="flex gap-2">
+          <button id="help-open-browser" type="button" onclick="openBrowserSheet('install')" class="hidden flex-1 py-2.5 px-3 rounded-full bg-primary text-white font-label font-semibold text-xs">🌐 Tarayıcıda Aç</button>
+          <button type="button" onclick="installApp()" class="flex-1 py-2.5 px-3 rounded-full border border-primary/40 text-primary font-label font-semibold text-xs">📲 Uygulamayı Yükle</button>
+          <button type="button" data-member onclick="requestNotificationAndRewardStamp()" class="hidden flex-1 py-2.5 px-3 rounded-full border border-primary/40 text-primary font-label font-semibold text-xs">🔔 Bildirimleri Aç</button>
+        </div>
+        <div class="divide-y divide-outline-variant/20">
+          <details id="help-notif" class="py-3">
+            <summary class="text-sm font-semibold text-on-surface cursor-pointer">🔔 Bildirim izni çıkmıyor / bildirim gelmiyor</summary>
+            <ol class="text-xs text-on-surface space-y-1.5 list-decimal ml-4 mt-1">
+              <li><strong>iPhone:</strong> Bildirimler yalnızca ana ekrana eklenen uygulamada çalışır (iOS 16.4 ve üstü). Önce uygulamayı ana ekrana ekle, ana ekrandaki simgeden açıp “Bildirimleri Aç”a dokun.</li>
+              <li><strong>iPhone · uygulamada izin kapalıysa:</strong> Ayarlar › Bildirimler › işletmenin uygulaması › <strong>“Bildirimlere İzin Ver”</strong>i aç; uygulamaya dönünce otomatik algılanır.</li>
+              <li><strong>Android · Chrome:</strong> Adres çubuğundaki ayar (⚙ / kilit) simgesine dokun → <strong>İzinler</strong> → <strong>Bildirimler</strong> → <strong>İzin ver</strong>. Daha önce “Engelle” dediysen izin penceresi bir daha açılmaz; buradan açman gerekir.</li>
+              <li><strong>Samsung Internet:</strong> ≡ menü → <strong>Ayarlar</strong> → <strong>Siteler ve indirmeler</strong> → <strong>Bildirimler</strong> → bu siteye izin ver.</li>
+              <li><strong>İzin açık ama bildirim gelmiyorsa:</strong> Telefon Ayarları → Uygulamalar → kullandığın tarayıcı (ya da {{ business_name }}) → <strong>Bildirimler açık</strong> olsun. Xiaomi, Huawei, Oppo gibi telefonlarda <strong>pil tasarrufu / arka plan kısıtlamasını</strong> bu uygulama için kapat.</li>
+              <li>Sayfayı Instagram, WhatsApp ya da bir QR okuyucu uygulamasının içinde açtıysan bildirim çalışmaz: önce <strong>Tarayıcıda Aç</strong>.</li>
+            </ol>
+          </details>
+          <details id="help-install" class="py-3">
+            <summary class="text-sm font-semibold text-on-surface cursor-pointer">📲 Uygulamayı yükleyemiyorum</summary>
+            <ol class="text-xs text-on-surface space-y-1.5 list-decimal ml-4 mt-1">
+              <li>Bu bir web uygulamasıdır: Play Store / App Store gerekmez, telefona dosya inmez.</li>
+              <li><strong>Android · Chrome:</strong> Sağ üstteki <strong>⋮</strong> menüsü → <strong>Uygulamayı yükle</strong> ya da <strong>Ana ekrana ekle</strong> → <strong>Yükle</strong>.</li>
+              <li><strong>iPhone · Safari:</strong> Alttaki <strong>Paylaş</strong> (□↑) → <strong>Ana Ekrana Ekle</strong> → <strong>Ekle</strong>.</li>
+              <li><strong>Samsung Internet:</strong> ≡ menü → <strong>Sayfayı ekle</strong> → <strong>Ana ekran</strong>.</li>
+              <li>Menüde bu seçenek yoksa sayfa bir uygulamanın içinde açılmıştır (Instagram, QR okuyucu…): <strong>Tarayıcıda Aç</strong> ve tekrar dene.</li>
+              <li>Yüklemek zorunda değilsin: damgaların telefon numarana bağlıdır, kartını tarayıcıdan da görebilirsin.</li>
+            </ol>
+          </details>
+          <details id="help-warn" class="py-3">
+            <summary class="text-sm font-semibold text-on-surface cursor-pointer">⚠️ “Güvenli değil” / “Tehlikeli site” uyarısı çıkıyor</summary>
+            <ol class="text-xs text-on-surface space-y-1.5 list-decimal ml-4 mt-1">
+              <li>Adres çubuğunda <strong>{{ official_host }}</strong> yazdığından emin ol; kafemizin resmî adresi budur.</li>
+              <li>Uyarıyı telefonun QR okuyucu uygulaması veriyorsa QR'ı telefonun <strong>kendi kamerasıyla</strong> okut ya da bağlantıyı <strong>Chrome / Safari</strong>'de aç.</li>
+              <li>Adres farklıysa ya da şüphen varsa sayfaya bilgi girme; kasadaki QR'ı yeniden okut.</li>
+            </ol>
+          </details>
+          <details class="py-3">
+            <summary class="text-sm font-semibold text-on-surface cursor-pointer">🙋 Hâlâ çözülmedi</summary>
+            <p class="text-xs text-on-surface mt-1">Kasada personele telefon numaranı söylemen yeterli: damganı panelden elle ekleyebilirler. Uygulama ya da bildirim olmadan da damga ve ödül hakkın kaybolmaz.</p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <!-- Alt gezinme: QR Okut yalnızca uygulamada görünür -->
+    <nav class="fixed bottom-0 left-0 right-0 z-50 glass-nav border-t border-outline-variant/20 rounded-t-3xl shadow-[0_-8px_30px_rgba(28,27,27,0.06)]">
+      <div class="max-w-md mx-auto flex justify-between items-center px-2 py-2">
+        <button type="button" id="nav-btn-home" onclick="switchTab('home')" class="flex-1 flex flex-col items-center justify-center py-1 rounded-2xl text-primary bg-secondary-container/70 font-semibold transition-all">
+          <span class="material-symbols-outlined text-[20px] material-symbols-filled">home</span><span class="font-label text-[10px] mt-0.5">Ana Sayfa</span>
+        </button>
+        <button type="button" id="nav-btn-kartim" onclick="switchTab('kartim')" class="flex-1 flex flex-col items-center justify-center py-1 rounded-2xl text-on-surface-variant hover:text-primary transition-all">
+          <span class="material-symbols-outlined text-[20px]">loyalty</span><span class="font-label text-[10px] mt-0.5">Kartım</span>
+        </button>
+        <button type="button" id="nav-btn-qrokut" onclick="switchTab('qrokut')" class="so-flex flex-1 -mt-4 flex-col items-center justify-center group transition-all">
+          <div class="w-12 h-12 rounded-full emerald-pass-gradient text-white flex items-center justify-center shadow-lg shadow-primary/30 border-2 border-surface group-hover:scale-105 active:scale-95 transition-transform">
+            <span class="material-symbols-outlined text-2xl">qr_code_scanner</span>
+          </div>
+          <span class="font-label text-[10px] mt-1 font-bold text-primary">QR Okut</span>
+        </button>
+        <button type="button" id="nav-btn-menu" onclick="switchTab('menu')" class="flex-1 flex flex-col items-center justify-center py-1 rounded-2xl text-on-surface-variant hover:text-primary transition-all">
+          <span class="material-symbols-outlined text-[20px]">restaurant_menu</span><span class="font-label text-[10px] mt-0.5">Menü</span>
+        </button>
+        <button type="button" id="nav-btn-profil" onclick="switchTab('profil')" class="flex-1 flex flex-col items-center justify-center py-1 rounded-2xl text-on-surface-variant hover:text-primary transition-all">
+          <span class="material-symbols-outlined text-[20px]">person</span><span class="font-label text-[10px] mt-0.5">Profil</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- Ana ekrana ekleme / tarayıcıda açma kılavuzu (ADR-28): yalnızca kullanıcı "Uygulamayı Yükle"ye ya da (iPhone tarayıcı
+       sekmesinde veya uygulama içi tarayıcıda) "Bildirimleri Aç"a dokununca açılır; adımlar tarayıcıya göre JS ile seçilir. -->
+  <div id="ios-guide-modal" role="dialog" aria-modal="true" aria-labelledby="ios-guide-title" class="modal-overlay hidden items-end sm:items-center justify-center p-3" onclick="if(event.target===this)closeIosGuide()">
+    <div class="modal-content bg-surface rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-outline-variant/30 space-y-4" style="max-height:calc(100dvh - 24px);overflow-y:auto">
+      <div class="flex items-start justify-between gap-3">
+        <h3 id="ios-guide-title" class="font-headline text-lg font-semibold text-primary leading-snug">📱 Ana Ekrana Ekle</h3>
+        <button type="button" onclick="closeIosGuide()" class="w-8 h-8 shrink-0 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant" aria-label="Kapat">✕</button>
+      </div>
+      <p id="ios-guide-lead" class="text-xs text-on-surface-variant leading-relaxed"></p>
+      <ol id="ios-guide-steps" class="space-y-2.5"></ol>
+      <p id="ios-guide-note" class="text-[11px] text-on-surface-variant leading-snug"></p>
+      <button id="ios-guide-action" type="button" class="hidden w-full py-3 rounded-full bg-primary text-white font-label font-semibold text-sm">🌐 Tarayıcıda Aç</button>
+      <button type="button" onclick="closeIosGuide()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Anladım</button>
+    </div>
+  </div>
+
+  <!-- Bilgi / KVKK modalı -->
+  <div id="info-modal" role="dialog" aria-modal="true" class="modal-overlay hidden items-center justify-center p-5" onclick="if(event.target===this)closeInfoModal()">
+    <div class="modal-content bg-surface rounded-3xl max-w-md w-full p-6 shadow-2xl border border-outline-variant/30 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 id="info-modal-title" class="font-headline text-xl font-semibold text-primary">Bilgilendirme</h3>
+        <button type="button" onclick="closeInfoModal()" class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant">✕</button>
+      </div>
+      <div id="info-modal-body" class="text-sm text-on-surface-variant leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-line"></div>
+      <button type="button" onclick="closeInfoModal()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Tamam</button>
+    </div>
+  </div>
+
+  <!-- Personel Ödül Kullandırma Modalı (/r/{staff_token}) -->
+  <div id="staff-redeem-modal" role="dialog" aria-modal="true" class="modal-overlay hidden items-center justify-center p-5">
+    <div class="modal-content bg-surface rounded-3xl max-w-md w-full p-6 shadow-2xl border border-outline-variant/30 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-headline text-2xl font-semibold text-primary">🎁 Ödül Teslim Onayı</h3>
+        <button type="button" onclick="closeStaffRedeemModal()" class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center">✕</button>
+      </div>
+      <p id="staff-redeem-status" class="text-sm text-on-surface-variant">Kontrol ediliyor...</p>
+      <div id="staff-redeem-actions" class="hidden space-y-2">
+        <button id="staff-redeem-confirm-btn" type="button" class="w-full py-3.5 rounded-full emerald-pass-gradient text-white font-semibold text-sm">Ödülü Şimdi Kullandır</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const REL_BASE = "{{ rel_base }}";
+    const APP_BASE = (window.location.pathname === "/k" || window.location.pathname.startsWith("/k/")) ? "/k/" : "/";
+    const BUSINESS_NAME = {{ (business_name or '') | tojson }};
+    const INITIAL_CLAIM_TOKEN = {{ (initial_claim_token or '') | tojson }};
+    const INITIAL_STAFF_TOKEN = {{ (initial_staff_token or '') | tojson }};
+    const INITIAL_TAB = {{ (initial_tab or 'home') | tojson }};
+    const GUEST_MODE = {{ "true" if guest_mode else "false" }};
+    const ENTRY = {{ (entry or '') | tojson }};   // 'stale' (eski / geçersiz Damga QR adresi, ADR-41) | 'scan' (Damga QR'ı /m/{gizli kod}, sabit QR / NFC) | 'stamp' (kasa ekranı canlı kodu) | 'nfc' (NTAG 424 DNA) | 'register' (Damga QR'ı şu an yalnızca kayıt) | 'kayit' (Kayıt / Uygulama QR'ı /m/kayit: damga vermez, ADR-35)
+    // ADR-31: sayfanın nasıl açıldığı (yeni sekme / yenileme / geri tuşu / açık sekme, yüklü uygulama mı) damga isteğiyle
+    // gider. Yalnızca müdürün işlem kayıtlarındaki "olası kötüye kullanım" notu içindir; damga kararını değiştirmez.
+    const CLAIM_CLIENT = (function () {
+      try {
+        const navEntry = performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
+        let navType = navEntry && navEntry.type ? navEntry.type : "";
+        if (!navType && performance.navigation) navType = ["navigate", "reload", "back_forward"][performance.navigation.type] || "";
+        const standalone = !!((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone);
+        return { nav: navType, hist: window.history.length, standalone: standalone };
+      } catch (e) { return {}; }
+    })();
+    function claimClient(via) { return Object.assign({}, CLAIM_CLIENT, { via: via || "page" }); }
+    // ADR-35: iki ayrı QR. Kayıt / Uygulama QR'ı (/m/kayit) sistemi açar ve damga vermez; Damga QR'ı (/m/qr) kasadadır.
+    const KAYIT_QR_TEXT = "Bu QR uygulamayı açar ve kayıt içindir; damga vermez. Damga için kasadaki “Damga” QR'ını okut ya da NFC etiketine dokundur.";
+    const STALE_QR_TEXT = "Bu QR kodu artık kullanılmıyor. Damga için kasadaki güncel QR'ı okut.";
+    const STATIC_QR_REGISTER_TEXT ="Kasadaki bu QR şu an yalnızca kayıt ve uygulama içindir; damga vermez. Damga için telefonunu kasadaki NFC etiketine dokundur ya da kasadaki ekranda görünen QR'ı okut.";
+    const WELCOME_GIFT_TEXT = "Hoş geldin! Kayıt hediyesi olarak +1 damga kartına eklendi 🎁";
+    const KVKK_TEXT = {{ (kvkk_text or "") | tojson }};
+    const MARKETING_TEXT = {{ (marketing_consent_text or "") | tojson }};
+    const TERMS_TEXT = {{ (program_terms_text or "") | tojson }};
+    const STORAGE_KEY = "loyalty_device_token";
+    const VALID_TABS = ["home", "kartim", "qrokut", "menu", "kampanyalar", "profil"];
+
+    let appState = {
+      identified: {{ "true" if has_device else "false" }},
+      customer: {{ (customer_card or None) | tojson }},
+      currentTab: "home",
+      campaigns: [],
+      products: [],
+      categories: [],
+      menuCat: "",
+      menuNote: "",
+      info: {},
+      stampTarget: {{ stamp_target or 5 }},
+      dailyLimit: {{ daily_limit or 2 }},
+      pendingClaimToken: INITIAL_CLAIM_TOKEN || null,
+      pushServiceEnabled: null, // sunucuda VAPID anahtarı var mı
+      vapidKey: null,
+      notifClaiming: false,     // hediye damga isteği sürüyor (çift istek olmasın)
+      dedicatedScanner: null,
+      dedicatedRunning: false,
+      // Evrensel API denetimi (Chrome/Edge/Firefox/Safari): hiçbir API kontrolsüz çağrılmaz; güvenli bağlam şart
+      pushSupported: (function () {
+        try { return window.isSecureContext !== false && ("serviceWorker" in navigator) && ("PushManager" in window) && ("Notification" in window); }
+        catch (e) { return false; }
+      })()
+    };
+
+    // ---------- Yardımcılar ----------
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function imgSrc(u) { return u ? APP_BASE + String(u).replace(/^\/+/, "").replace(/^k\//, "") : ""; }
+    function isStandalone() { return document.documentElement.classList.contains("is-standalone"); }
+    // Tarayıcı bağımsız güvenli sarmalayıcılar: Notification yoksa/erişim hata verirse "unsupported" döner
+    function notifPermission() {
+      try { return ("Notification" in window) ? Notification.permission : "unsupported"; } catch (e) { return "unsupported"; }
+    }
+    // Eski Safari (<16) callback biçimini, yeni tarayıcılar Promise biçimini kullanır; ikisini de karşılar. Asla reddetmez.
+    function requestNotifPermission() {
+      return new Promise((resolve) => {
+        try {
+          const r = Notification.requestPermission(resolve);
+          if (r && typeof r.then === "function") r.then(resolve, () => resolve("default"));
+        } catch (e) { resolve("default"); }
+      });
+    }
+    // iPhone/iPad (iPadOS 13+ kendini "Macintosh" olarak tanıtır; dokunmatik ekran ayırt eder)
+    function isIos() {
+      try {
+        const ua = navigator.userAgent || "";
+        return (/iphone|ipad|ipod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) && !window.MSStream;
+      } catch (e) { return false; }
+    }
+    function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function getStoredToken() { return lsGet(STORAGE_KEY) || ""; }
+    function saveStoredToken(t) { if (t) lsSet(STORAGE_KEY, t); }
+    function clearStoredToken() { try { localStorage.removeItem(STORAGE_KEY); } catch (e) {} }
+
+    async function apiFetch(path, options = {}) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+      const token = getStoredToken();
+      if (token) headers["X-Device-Token"] = token;
+      const res = await fetch(APP_BASE + path.replace(/^\//, ""), { ...options, headers, credentials: "same-origin" });
+      return await res.json();
+    }
+
+    function showToast(message, type = "success") {
+      const banner = document.getElementById("toast-banner");
+      const icon = document.getElementById("toast-icon");
+      banner.className = "fixed top-4 left-1/2 -translate-x-1/2 max-w-sm w-[92%] rounded-2xl px-4 py-3.5 shadow-xl border transition-all duration-300 ";
+      if (type === "error") { banner.className += "bg-error-container text-error border-error/25"; icon.textContent = "error"; }
+      else if (type === "warning") { banner.className += "bg-tertiary-container text-tertiary border-brass/40"; icon.textContent = "info"; }
+      else { banner.className += "emerald-pass-gradient text-white border-white/15"; icon.textContent = "verified"; }
+      document.getElementById("toast-text").textContent = message;
+      banner.classList.remove("hidden");
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(hideToast, 4500);
+    }
+    function hideToast() { clearTimeout(window._toastTimer); document.getElementById("toast-banner").classList.add("hidden"); }
+
+    function openInfoModal(title, text) {
+      document.getElementById("info-modal-title").textContent = title;
+      document.getElementById("info-modal-body").textContent = text;
+      const m = document.getElementById("info-modal");
+      m.classList.remove("hidden"); m.classList.add("flex");
+    }
+    function closeInfoModal() {
+      const m = document.getElementById("info-modal");
+      m.classList.add("hidden"); m.classList.remove("flex");
+    }
+    function openKvkkModal() { openInfoModal("KVKK Aydınlatma Metni", KVKK_TEXT || "Aydınlatma metni yüklenemedi."); }
+    function openTermsModal() { openInfoModal("Sadakat Programı Koşulları", TERMS_TEXT || "Koşullar yüklenemedi."); }
+    function openMarketingModal() { openInfoModal("Açık Rıza ve Ticari Elektronik İleti Onayı", MARKETING_TEXT || "Onay metni yüklenemedi."); }
+
+    // ---------- Kimlik durumuna göre görünüm ----------
+    function applyIdentityUI() {
+      const member = !!(appState.identified && appState.customer);
+      document.querySelectorAll("[data-member]").forEach(el => el.classList.toggle("hidden", !member));
+      document.querySelectorAll("[data-guest]").forEach(el => el.classList.toggle("hidden", member));
+      document.getElementById("home-greeting").textContent = member ? "Merhaba" : "Hoş geldiniz";
+      document.getElementById("header-user-badge").textContent = member ? "Profil" : "Giriş";
+      if (!member) { const hg = document.getElementById("home-gift-ready"); if (hg) hg.classList.add("hidden"); }
+      updateEngageCard();
+    }
+
+    function handleHeaderUserClick() {
+      if (appState.identified) switchTab("profil"); else showAuthScreen();
+    }
+
+    // ---------- Sekmeler ----------
+    function switchTab(tabName) {
+      if (tabName === "qrokut" && !isStandalone()) {
+        showToast("QR okutucu yalnızca indirdiğin uygulamada çalışır. Telefonunun kamerasıyla da okutabilirsin.", "warning");
+        tabName = "home";
+      }
+      appState.currentTab = tabName;
+      if (tabName === "qrokut") {
+        document.getElementById("auth-screen").classList.add("hidden");
+        document.getElementById("main-app-screen").classList.remove("hidden");
+      }
+      VALID_TABS.forEach(t => {
+        const el = document.getElementById("tab-" + t);
+        const btn = document.getElementById("nav-btn-" + t);
+        if (el) el.classList.toggle("hidden", t !== tabName);
+        if (!btn) return;
+        if (t === "qrokut") {
+          const circle = btn.querySelector("div");
+          if (circle) circle.className = t === tabName
+            ? "w-12 h-12 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center shadow-lg shadow-secondary/40 border-2 border-primary scale-110 transition-transform"
+            : "w-12 h-12 rounded-full emerald-pass-gradient text-white flex items-center justify-center shadow-lg shadow-primary/30 border-2 border-surface group-hover:scale-105 active:scale-95 transition-transform";
+        } else {
+          const icon = btn.querySelector(".material-symbols-outlined");
+          btn.className = "flex-1 flex flex-col items-center justify-center py-1 rounded-2xl transition-all " +
+            (t === tabName ? "text-primary bg-secondary-container/70 font-semibold" : "text-on-surface-variant hover:text-primary");
+          if (icon) icon.classList.toggle("material-symbols-filled", t === tabName);
+        }
+      });
+      if (tabName === "qrokut") startDedicatedQrScanner(); else stopDedicatedQrScanner();
+      window.scrollTo(0, 0);
+    }
+
+    // ---------- Damga slotları ----------
+    function renderStampSlots(currentStamps, targetStamps, animateLast = false) {
+      const target = Math.max(1, targetStamps || 5);
+      const count = Math.max(0, currentStamps || 0);
+      let homeHtml = "", cardHtml = "";
+      for (let i = 1; i <= target; i++) {
+        const anim = (animateLast && i === count) ? "animate-stamp-pop" : "";
+        if (i <= count) {
+          homeHtml += `<div class="h-14 cafe-arch bg-secondary-container text-primary flex flex-col items-center justify-center shadow-inner ${anim}"><span class="material-symbols-outlined text-xl material-symbols-filled">local_cafe</span><span class="text-[9px] font-bold uppercase tracking-tighter mt-0.5">${i}</span></div>`;
+          cardHtml += `<div class="aspect-[3/4] cafe-arch bg-secondary-container text-primary flex flex-col items-center justify-center p-2 shadow-md ${anim}"><span class="material-symbols-outlined text-2xl material-symbols-filled">local_cafe</span><span class="font-label text-[9px] font-bold uppercase tracking-tighter mt-1">DAMGA ${i}</span></div>`;
+        } else if (i === target) {
+          homeHtml += `<div class="h-14 cafe-arch bg-tertiary-container/25 border border-dashed border-tertiary-container/60 text-tertiary-container flex flex-col items-center justify-center"><span class="material-symbols-outlined text-lg material-symbols-filled">redeem</span><span class="text-[9px] font-bold uppercase tracking-tighter mt-0.5">ÖDÜL</span></div>`;
+          cardHtml += `<div class="aspect-[3/4] cafe-arch bg-tertiary-container/20 border-2 border-dashed border-tertiary-container/50 text-tertiary-container flex flex-col items-center justify-center p-2"><span class="material-symbols-outlined text-2xl material-symbols-filled">redeem</span><span class="font-label text-[9px] font-bold uppercase tracking-tighter mt-1">HEDİYE</span></div>`;
+        } else {
+          homeHtml += `<div class="h-14 cafe-arch bg-white/10 border border-white/20 text-white/60 flex flex-col items-center justify-center"><span class="font-headline italic text-sm">${i}</span></div>`;
+          cardHtml += `<div class="aspect-[3/4] cafe-arch bg-white/10 border border-white/20 text-white/60 flex flex-col items-center justify-center p-2"><span class="material-symbols-outlined text-xl opacity-50">local_cafe</span><span class="font-label text-[9px] font-medium uppercase tracking-tighter mt-1 opacity-75">BOŞ ${i}</span></div>`;
+        }
+      }
+      document.getElementById("home-stamp-slots").innerHTML = homeHtml;
+      document.getElementById("card-stamp-grid").innerHTML = cardHtml;
+    }
+
+    // ---------- Kampanyalar / Menü (tüm dinamik değerler esc() ile kaçırılır) ----------
+    function renderCampaigns(campaigns) {
+      const list = campaigns || [];
+      const homeC = document.getElementById("home-campaigns-list");
+      const allC = document.getElementById("all-campaigns-list");
+      if (!list.length) {
+        const empty = `<div class="bg-surface-low rounded-3xl p-6 text-center border border-outline-variant/20"><span class="material-symbols-outlined text-3xl text-outline mb-2">campaign</span><p class="text-sm text-on-surface-variant">Şu anda aktif kampanya duyurusu bulunmuyor.</p></div>`;
+        homeC.innerHTML = empty; allC.innerHTML = empty;
+        return;
+      }
+      const card = (c) => {
+        const img = c.image_url ? `<div class="h-44 w-full overflow-hidden relative bg-surface-container"><img src="${esc(imgSrc(c.image_url))}" alt="" class="w-full h-full object-cover" loading="lazy" onerror="this.parentElement.style.display='none'" /><div class="absolute top-3 left-3 bg-primary/90 text-white px-3 py-1 rounded-full"><span class="font-label text-[10px] uppercase tracking-widest font-bold">${esc(c.badge || "KAMPANYA")}</span></div></div>`
+          : `<div class="px-5 pt-5"><span class="inline-block bg-secondary-container text-on-secondary-container font-label text-[10px] uppercase tracking-widest font-bold px-3 py-1 rounded-full">${esc(c.badge || "DUYURU")}</span></div>`;
+        return `<article class="bg-surface-low rounded-3xl overflow-hidden shadow-sm border border-outline-variant/25" data-camp="${esc(String(c.id))}">${img}<div class="p-5"><h4 class="font-headline text-xl font-semibold text-primary mb-1.5">${esc(c.title)}</h4><p class="text-on-surface-variant text-sm leading-relaxed whitespace-pre-line">${esc(c.description || "")}</p>${Number(c.reward_stamps || 0) > 0 ? rewardTaskHtml(c) : ""}</div></article>`;
+      };
+      homeC.innerHTML = list.slice(0, 3).map(card).join("");
+      allC.innerHTML = list.map(card).join("");
+    }
+
+    // ---------- Ödüllü kampanya (ör. Google'da yorum): katıl → görevi yap → "Yaptım" → doğrulama → damga (ADR-26) ----------
+    // Damga YALNIZCA kasiyer/müdür doğruladıktan sonra eklenir; "Yaptım" demek tek başına damga vermez.
+    function rewardTaskHtml(c) {
+      const n = Number(c.reward_stamps || 1);
+      const head = `<div class="flex items-center justify-between gap-2"><span class="text-xs font-bold text-primary">🎁 Ödül: +${n} Damga</span>`;
+      const box = (inner, chip) => `<div class="mt-4 rounded-2xl bg-white/60 border border-outline-variant/30 p-4 space-y-3">${head}${chip || ""}</div>${inner}</div>`;
+      const chip = (cls, t) => `<span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${cls}">${t}</span>`;
+      if (!(appState.identified && appState.customer)) {
+        return box(`<button type="button" onclick="showAuthScreen()" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Katılmak için giriş yap</button>`);
+      }
+      const st = c.my_status || "none";
+      const label = esc(c.action_label || "Görevi Yap");
+      const go = c.action_url
+        ? `<a href="${esc(c.action_url)}" target="_blank" rel="noopener noreferrer" onclick="campaignJoin(${Number(c.id)})" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm flex items-center justify-center gap-2">⭐ ${label}</a>`
+        : "";
+      const proofForm = (btnText) => `<div class="space-y-2"><label class="block text-xs font-semibold text-on-surface-variant">Görevi yaptıysan, yorumda görünen adını yaz (doğrulama için):</label>` +
+        `<input name="proof" type="text" maxlength="60" autocomplete="name" placeholder="Örn: Ayşe K." value="${esc(c.my_proof_name || "")}" class="w-full rounded-2xl bg-white border border-outline-variant/40 px-4 py-3 text-sm font-semibold text-on-surface focus:ring-2 focus:ring-primary/30 focus:border-primary" />` +
+        `<button type="button" onclick="campaignSubmit(this, ${Number(c.id)})" class="w-full py-3 rounded-full bg-secondary-container text-on-secondary-container font-label font-semibold text-sm">${btnText}</button>` +
+        `<p class="text-[11px] text-on-surface-variant leading-snug">Ad yalnızca yorumunu bulmak için kullanılır. Kontrol edildikten sonra damgan kartına eklenir.</p></div>`;
+      if (st === "approved") {
+        return box(`<p class="text-sm font-semibold text-primary">✅ Tamamlandı — +${n} damga kartına eklendi. Teşekkürler!</p>`, chip("bg-secondary-container text-on-secondary-container", "Onaylandı"));
+      }
+      if (st === "pending") {
+        return box(`<p class="text-sm text-on-surface">⏳ Doğrulama bekleniyor. Kontrol edildikten sonra +${n} damga kartına eklenecek.</p>` +
+          (c.my_proof_name ? `<p class="text-xs text-on-surface-variant">Gönderilen ad: <strong>${esc(c.my_proof_name)}</strong></p>` : "") +
+          `<p class="text-[11px] text-on-surface-variant">Kasada beklemek istemezsen yorumunu personele göstermen yeterli.</p>`,
+          chip("bg-tertiary-container text-tertiary", "Doğrulama bekliyor"));
+      }
+      if (st === "rejected") {
+        return box(`<p class="text-sm text-error font-semibold">Yorumun doğrulanamadı${c.my_reject_reason ? ": " + esc(c.my_reject_reason) : "."}</p>` + go + proofForm("Tekrar Onaya Gönder"),
+          chip("bg-error-container text-error", "Doğrulanamadı"));
+      }
+      if (st === "joined") {
+        return box(go + proofForm("Yaptım, Onaya Gönder"), chip("bg-secondary-container text-on-secondary-container", "Katıldın"));
+      }
+      return box((go || `<button type="button" onclick="campaignJoin(${Number(c.id)})" class="w-full py-3 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm">Kampanyaya Katıl</button>`) +
+        `<p class="text-[11px] text-on-surface-variant leading-snug">Görevi yaptıktan sonra buraya dönüp onaya gönder; doğrulanınca damgan eklenir.</p>`);
+    }
+
+    function setCampaignState(id, res) {
+      appState.campaigns = (appState.campaigns || []).map((c) => c.id === id
+        ? Object.assign({}, c, { my_status: res.my_status, my_proof_name: res.my_proof_name, my_reject_reason: res.my_reject_reason })
+        : c);
+      renderCampaigns(appState.campaigns);
+    }
+
+    // Görev bağlantısı <a target=_blank> ile açılır (açılır pencere engeline takılmaz); katılım kaydı paralelde yapılır
+    async function campaignJoin(id) {
+      const c = (appState.campaigns || []).find((x) => x.id === id);
+      if (!c || (c.my_status && c.my_status !== "none")) return;
+      try {
+        const res = await apiFetch("/api/campaigns/" + id + "/join", { method: "POST", body: JSON.stringify({ device_token: getStoredToken() }) });
+        if (res.status === "success") setCampaignState(id, res);
+        else showToast(res.message || "Kampanyaya katılım kaydedilemedi.", "error");
+      } catch (e) { showToast("Bağlantı hatası oluştu.", "error"); }
+    }
+
+    async function campaignSubmit(btn, id) {
+      const art = btn.closest("article");
+      const input = art ? art.querySelector('input[name="proof"]') : null;
+      const name = input ? input.value.trim() : "";
+      if (name.length < 2) { showToast("Yorumu hangi adla yaptığını yaz (doğrulama için).", "error"); if (input) input.focus(); return; }
+      btn.disabled = true;
+      try {
+        const res = await apiFetch("/api/campaigns/" + id + "/submit", { method: "POST", body: JSON.stringify({ proof_name: name, device_token: getStoredToken() }) });
+        if (res.status === "success" || res.status === "already_approved") { setCampaignState(id, res); showToast(res.message || "Gönderildi."); }
+        else showToast(res.message || "Gönderilemedi.", "error");
+      } catch (e) { showToast("Bağlantı hatası oluştu.", "error"); }
+      finally { btn.disabled = false; }
+    }
+
+    function fmtPrice(n) { return Number(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺"; }
+
+    function priceBadge(p) {
+      const dp = Number(p.discount_price || 0);
+      if (dp > 0 && dp < Number(p.price)) {
+        const label = p.discount_label ? `<span class="tag-sale px-2 py-0.5 rounded-full text-[10px] font-bold">${esc(p.discount_label)}</span>` : "";
+        return `<span class="shrink-0 text-right leading-tight">${label}<span class="block text-[11px] text-on-surface-variant line-through">${fmtPrice(p.price)}</span><span class="block px-2.5 py-0.5 rounded-full bg-tertiary-container text-tertiary text-xs font-bold">${fmtPrice(dp)}</span></span>`;
+      }
+      return `<span class="shrink-0 px-2.5 py-0.5 rounded-full bg-tertiary-container text-tertiary text-xs font-bold">${fmtPrice(p.price)}</span>`;
+    }
+
+    function setMenuCat(cat) { appState.menuCat = cat || ""; renderMenu(appState.products, appState.menuNote); }
+
+    function renderMenu(products, note) {
+      appState.menuNote = note || "";
+      document.getElementById("menu-note").textContent = appState.menuNote;
+      const box = document.getElementById("menu-list");
+      const chips = document.getElementById("menu-cats");
+      if (!products || !products.length) {
+        chips.innerHTML = "";
+        box.innerHTML = `<div class="bg-surface-low rounded-3xl p-6 text-center border border-outline-variant/20"><p class="text-sm text-on-surface-variant">Menü yakında burada.</p></div>`;
+        return;
+      }
+      // Kategoriler müdürün belirlediği sırada; listede olmayan kategoriler sona eklenir
+      const groups = {}, names = {};
+      products.forEach(p => {
+        const name = p.category || "Genel", key = name.toLowerCase();
+        names[key] = names[key] || name;
+        (groups[key] = groups[key] || []).push(p);
+      });
+      const ordered = [];
+      (appState.categories || []).forEach(c => { const k = String(c).toLowerCase(); if (groups[k] && !ordered.includes(k)) ordered.push(k); });
+      Object.keys(groups).forEach(k => { if (!ordered.includes(k)) ordered.push(k); });
+      if (appState.menuCat && !ordered.includes(appState.menuCat)) appState.menuCat = "";
+      const chip = (key, label) => {
+        const on = appState.menuCat === key;
+        return `<button type="button" data-cat="${esc(key)}" class="menu-chip shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors ${on ? "bg-primary text-on-primary border-primary" : "bg-surface-low text-primary border-outline-variant"}">${esc(label)}</button>`;
+      };
+      chips.innerHTML = chip("", "Tümü") + ordered.map(k => chip(k, names[k])).join("");
+      chips.querySelectorAll(".menu-chip").forEach(b => b.addEventListener("click", () => setMenuCat(b.getAttribute("data-cat"))));
+      const shown = appState.menuCat ? [appState.menuCat] : ordered;
+      box.innerHTML = shown.map(k => `
+        <section class="space-y-3">
+          <h3 class="font-headline text-xl text-primary font-semibold border-b border-outline-variant/30 pb-1">${esc(names[k])}</h3>
+          ${groups[k].map(p => `
+            <div class="flex gap-3 bg-surface-low rounded-2xl p-3 border border-outline-variant/20">
+              ${p.image_url ? `<img src="${esc(imgSrc(p.image_url))}" alt="" class="w-20 h-20 rounded-xl object-cover shrink-0" loading="lazy" onerror="this.style.display='none'" />` : ""}
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start justify-between gap-2"><p class="font-semibold text-on-surface">${esc(p.name)}${p.is_new ? ' <span class="tag-new align-middle ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide">✨ Yeni</span>' : ""}</p>${priceBadge(p)}</div>
+                ${p.description ? `<p class="text-xs text-on-surface-variant mt-0.5 leading-snug">${esc(p.description)}</p>` : ""}
+              </div>
+            </div>`).join("")}
+        </section>`).join("");
+    }
+
+    function applyBranding(info) {
+      const logo = document.getElementById("header-logo");
+      if (info && info.logo_url) {
+        logo.src = imgSrc(info.logo_url).replace("logo-512", "logo-192");
+        logo.classList.remove("hidden");
+        document.getElementById("header-logo-icon").classList.add("hidden");
+      }
+    }
+
+    // ---------- Müşteri arayüzü ----------
+    function updateCustomerUI(customer, animateStamp = false) {
+      if (!customer) return;
+      appState.customer = customer;
+      appState.identified = true;
+      applyIdentityUI();
+
+      const displayName = customer.display_name || `user${customer.customer_id || 1}`;
+      const phone = customer.formatted_phone || customer.masked_phone || "";
+      const cur = Number(customer.current_stamps || 0);
+      const target = Number(customer.stamp_target || appState.stampTarget || 5);
+      const usable = Number(customer.usable_rewards_count !== undefined ? customer.usable_rewards_count : (customer.usable_rewards ? customer.usable_rewards.length : (customer.pending_rewards || 0)));
+      const remaining = Math.max(0, target - cur);
+
+      document.getElementById("home-reward-count").textContent = usable;
+      document.getElementById("home-stamp-counter").textContent = `${cur} / ${target}`;
+      document.getElementById("home-stamp-status-text").textContent = usable > 0 ? `🎉 ${usable} adet kullanılabilir ödül kahveniz hazır!` : `Ücretsiz kahvenize ${remaining} damga kaldı.`;
+
+      document.getElementById("card-stamp-fraction").textContent = `${cur} / ${target} Damga`;
+      document.getElementById("card-remaining-text").innerHTML = remaining > 0
+        ? `Ücretsiz kahvenize <strong class="text-white">${remaining} damga</strong> kaldı.`
+        : `<strong class="text-secondary-container">Tebrikler! Ödülünüz hazır.</strong>`;
+      document.getElementById("card-usable-badge").textContent = `${usable} Ödül Hazır`;
+      document.getElementById("card-daily-limit").textContent = customer.daily_limit || appState.dailyLimit || 2;
+
+      const usableSection = document.getElementById("usable-rewards-section");
+      usableSection.classList.toggle("hidden", usable <= 0);
+      const homeGift = document.getElementById("home-gift-ready");
+      if (homeGift) homeGift.classList.toggle("hidden", usable <= 0);
+      if (usable > 0) document.getElementById("usable-rewards-count-pill").textContent = `${usable} Bilet`;
+
+      document.getElementById("profile-avatar-initials").textContent = displayName.slice(0, 2).toUpperCase();
+      document.getElementById("profile-display-name").textContent = displayName;
+      document.getElementById("profile-phone-formatted").textContent = phone;
+      document.getElementById("profile-default-hint").textContent = `user${customer.customer_id || 1}`;
+      const nameInput = document.getElementById("profile-name-input");
+      if (document.activeElement !== nameInput) nameInput.value = displayName;
+
+      renderStampSlots(cur, target, animateStamp);
+      document.getElementById("auth-screen").classList.add("hidden");
+      document.getElementById("main-app-screen").classList.remove("hidden");
+      updatePushUI();
+    }
+
+    function applyGlobalNumbers() {
+      document.querySelectorAll(".stamp-target-txt").forEach(e => e.textContent = appState.stampTarget);
+      document.querySelectorAll(".daily-limit-txt").forEach(e => e.textContent = appState.dailyLimit);
+    }
+
+    function showAuthScreen() {
+      document.getElementById("main-app-screen").classList.add("hidden");
+      document.getElementById("auth-screen").classList.remove("hidden");
+      const pending = !!appState.pendingClaimToken;
+      document.getElementById("auth-pending-claim-box").classList.toggle("hidden", !pending);
+      const giftNote = document.getElementById("auth-gift-note");
+      if (giftNote) giftNote.classList.toggle("hidden", pending);   // damga bekleyen okutuşta ayrı kutu gösterilir
+      document.getElementById("login-submit-text").textContent = pending ? "Kayıt Ol ve Damgamı Al" : "Devam Et ve Kartımı Aç";
+      updateLoginBtn();
+      window.scrollTo(0, 0);
+    }
+
+    function clearClaimFromUrl() {
+      try {
+        if (/\/(m|c|d)\/[^/]+\/?$/.test(window.location.pathname) || /\/n\/?$/.test(window.location.pathname) || window.location.search.includes("claim=")) {
+          window.history.replaceState({}, "", APP_BASE + "kart/");
+        }
+      } catch (e) {}
+    }
+
+    // ---------- Giriş / kayıt (ADR-23: iki ZORUNLU kutu — Aydınlatma teyidi + Açık Rıza ve Ticari Elektronik İleti onayı) ----------
+    function consentPayload() {
+      return {
+        full_name: fullNameValue(),   // ADR-47: yeni kayıtta zorunlu (sunucu da denetler)
+        kvkk_read: document.getElementById("consent-kvkk").checked,
+        marketing_consent: document.getElementById("consent-marketing").checked
+      };
+    }
+    // ADR-47: ad-soyad — en az iki sözcük, yalnızca harf (sunucudaki clean_full_name ile aynı kural)
+    function fullNameValue() {
+      const el = document.getElementById("login-name-input");
+      return el ? el.value.replace(/\s+/g, " ").trim() : "";
+    }
+    function fullNameValid(name) {
+      const parts = String(name || "").split(" ").filter(Boolean);
+      if (name.length < 3 || name.length > 40 || parts.length < 2) return false;
+      // RegExp çalışma anında kurulur: \p{L} eski Safari'de sözdizimi hatası olup tüm betiği durdurmasın
+      try { const re = new RegExp("^\\p{L}[\\p{L}'’.\\-]*$", "u"); return parts.every((p) => re.test(p)); } catch (e) { return true; }
+    }
+    // Yalnızca aydınlatma teyidi zorunlu; açık rıza/ticari ileti onayı isteğe bağlıdır (ADR-24).
+    function consentsComplete() {
+      return !!consentPayload().kvkk_read;
+    }
+    function updateLoginBtn() {
+      document.getElementById("login-submit-btn").disabled = !consentsComplete();
+    }
+
+    async function handlePhoneLogin(e) {
+      e.preventDefault();
+      const input = document.getElementById("login-phone-input");
+      const errEl = document.getElementById("login-error-msg");
+      const btn = document.getElementById("login-submit-btn");
+      const phone = input.value.trim();
+      const consent = consentPayload();
+      errEl.classList.add("hidden");
+      if (!fullNameValid(consent.full_name)) {
+        errEl.textContent = "Adınızı ve soyadınızı yazın (ör. Ayşe Yılmaz).";
+        errEl.classList.remove("hidden");
+        const nameEl = document.getElementById("login-name-input");
+        if (nameEl) nameEl.focus();
+        return;
+      }
+      if (!consentsComplete()) {
+        errEl.textContent = "Devam etmek için Aydınlatma Metni'ni okuyup anladığınızı onaylayın.";
+        errEl.classList.remove("hidden");
+        return;
+      }
+      btn.disabled = true;
+      let codeNotice = "";
+      try {
+        if (appState.pendingClaimToken) {
+          const claimRes = await apiFetch("/api/claim", {
+            method: "POST",
+            body: JSON.stringify(Object.assign({ claim_token: appState.pendingClaimToken, phone: phone, device_token: getStoredToken(), client: claimClient(appState.pendingClaimVia) }, consent))
+          });
+          if (claimRes.device_token || claimRes.new_device_token) saveStoredToken(claimRes.device_token || claimRes.new_device_token);
+          if (["success", "limit_reached", "daily_limit", "interval_limit", "registered", "registration_qr"].includes(claimRes.status)) {
+            appState.pendingClaimToken = null;
+            clearClaimFromUrl();
+            await loadHomeData(true);
+            switchTab("kartim");
+            showToast(claimRes.message || "Hoş geldiniz! Damganız işlendi.", (claimRes.status === "success" || claimRes.welcome_gift) ? "success" : "warning");
+            afterLogin();
+            return;
+          }
+          if (claimRes.status === "consent_required" || claimRes.status === "error") {
+            errEl.textContent = claimRes.message || "İşlem tamamlanamadı.";
+            errEl.classList.remove("hidden");
+            return;
+          }
+          // Damga kodu artık geçerli değil (süresi doldu / kullanıldı / başka telefonda): kayıt yine yapılır, damga için
+          // kasadaki güncel QR okutulur (ADR-28)
+          appState.pendingClaimToken = null;
+          clearClaimFromUrl();
+          codeNotice = claimRes.message || "";
+        }
+
+        const res = await apiFetch("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify(Object.assign({ phone: phone, device_token: getStoredToken() }, consent))
+        });
+        if (res.status !== "success") {
+          errEl.textContent = res.message || "Lütfen geçerli bir telefon numarası giriniz (5XX XXX XX XX).";
+          errEl.classList.remove("hidden");
+          return;
+        }
+        if (res.device_token) saveStoredToken(res.device_token);
+        // ADR-35: yeni kayıt +1 hediye damga alır (kart güncellenir + bildirim); hediye kilitliyse sebebi söylenir
+        await loadHomeData(!!res.welcome_gift);
+        switchTab(GUEST_MODE ? "home" : appState.currentTab === "qrokut" ? "qrokut" : "home");
+        if (res.welcome_gift) showToast(res.welcome_message || WELCOME_GIFT_TEXT, "success");
+        else if (res.welcome_pending && res.welcome_message) showToast(res.welcome_message, "success");
+        else if (res.welcome_locked && res.welcome_message) showToast(res.welcome_message, "warning");
+        else showToast(codeNotice || "Hoş geldiniz!", codeNotice ? "warning" : "success");
+        afterLogin();
+      } catch (err) {
+        errEl.textContent = "Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.";
+        errEl.classList.remove("hidden");
+      } finally {
+        updateLoginBtn();
+      }
+    }
+
+    // Giriş sonrası: bildirim izni kayıt ekranında İSTENMEZ (site içindeki "Bildirimleri Aç" ile istenir). Bu tarayıcıda
+    // izin zaten verilmişse hediye damga (hak kullanılmadıysa) ve Web Push aboneliği sessizce kurulur.
+    function afterLogin() {
+      if (isStandalone()) claimInstallBonus();
+      updatePushUI();
+      syncPushState().catch(() => {}).finally(updatePushUI);
+      setTimeout(nudgeNotifAfterInstall, 2500);   // giriş / hoş geldin toast'ının üstüne binmesin
+    }
+
+    // iPhone'da ana ekrana ekledikten sonraki ilk açılış: izin yalnızca dokunuşla istenebilir; pencere açmadan (ADR-18)
+    // ana sayfadaki "Bildirimleri Aç" kartına yönlendiren tek seferlik kısa ipucu.
+    function nudgeNotifAfterInstall() {
+      try {
+        const env = browserEnv();
+        if (!env.ios || !isStandalone() || !appState.identified || INITIAL_STAFF_TOKEN) return;
+        if (notifPermission() !== "default" || lsGet("m1_ios_notif_nudge")) return;
+        lsSet("m1_ios_notif_nudge", "1");
+        switchTab("home");
+        const target = document.getElementById("home-notif-offer") || document.getElementById("home-engage-card");
+        if (target) setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+        showToast("Son adım: 🔔 Bildirimleri Aç'a dokun" + (notifGiftOn() ? ", +1 hediye damga kazan." : "."));
+      } catch (e) {}
+    }
+
+    // ---------- Damga: her okutuş tek kullanımlık bir açılış (ADR-28, ADR-29) ----------
+    // Sayfaya gömülü açılış kodu ya da okunan metin / bağlantı olduğu gibi sunucuya gider. Aynı kod ikinci kez damga
+    // vermez (yenileme, geri dönme, paylaşma); sabit QR'ı yeniden açmak "aynı ziyarette tek damga" beklemesine takılır.
+    async function submitClaimToken(rawTokenOrUrl, via) {
+      const raw = String(rawTokenOrUrl || "").trim();
+      if (!raw) return;
+      let res;
+      try {
+        res = await apiFetch("/api/claim", { method: "POST", body: JSON.stringify({ claim_token: raw, device_token: getStoredToken(), client: claimClient(via) }) });
+      } catch (err) {
+        showToast("Sunucuya bağlanılamadı. Lütfen tekrar deneyin.", "error");
+        return;
+      }
+      if (res.device_token || res.new_device_token) saveStoredToken(res.device_token || res.new_device_token);
+
+      if (res.status === "need_phone" || res.status === "need_auth") {
+        appState.pendingClaimToken = raw;   // kod bu telefona ayrıldı: numara girilince damga eklenir
+        appState.pendingClaimVia = via || "page";
+        showAuthScreen();
+        showToast(res.message || "Damganı kaydetmek için telefon numaranı gir.", "warning");
+        return;
+      }
+      appState.pendingClaimToken = null;
+      clearClaimFromUrl();
+      if (res.status === "success") {
+        await loadHomeData(true);
+        switchTab("kartim");
+        showToast(res.message || "🎉 +1 Damga kartınıza eklendi!", "success");
+      } else if (["limit_reached", "daily_limit", "interval_limit", "registration_qr", "registered"].includes(res.status)) {
+        // registration_qr / registered (ADR-30, ADR-35): damga vermeyen QR — kayıt + uygulama (+ kayıt hediyesi); damga Damga QR'ıyla
+        await loadHomeData(!!res.welcome_gift);
+        switchTab("kartim");
+        showToast(res.message, res.welcome_gift ? "success" : "warning");
+      } else {
+        // code_used / code_expired / code_held / code_invalid / nfc_invalid / nfc_unavailable / error: damga yok
+        await loadHomeData(false);
+        showToast(res.message || "QR kod okutulamadı.", "error");
+      }
+    }
+
+    // ---------- QR okutucu (yalnızca uygulamada) ----------
+    function loadQrLib() {
+      return new Promise((resolve, reject) => {
+        if (typeof Html5Qrcode !== "undefined") return resolve();
+        const s = document.createElement("script");
+        s.src = REL_BASE + "static/js/vendor/html5-qrcode.min.js";
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("qr-lib"));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function startDedicatedQrScanner() {
+      if (!isStandalone()) return;
+      const readerEl = document.getElementById("dedicated-qr-reader");
+      const statusEl = document.getElementById("dedicated-scanner-status");
+      const laserEl = document.getElementById("dedicated-scanner-laser");
+      const placeholder = document.getElementById("dedicated-qr-placeholder");
+      if (!readerEl) return;
+      statusEl.textContent = "Kamera başlatılıyor...";
+      try { await loadQrLib(); } catch (e) { statusEl.textContent = "Kamera modülü yüklenemedi."; return; }
+      try {
+        if (appState.dedicatedScanner && appState.dedicatedRunning) await appState.dedicatedScanner.stop();
+        appState.dedicatedScanner = new Html5Qrcode("dedicated-qr-reader");
+        appState.dedicatedRunning = true;
+        placeholder.classList.add("hidden");
+        laserEl.classList.remove("hidden");
+        await appState.dedicatedScanner.start(
+          { facingMode: "environment" },
+          { fps: 12, qrbox: { width: 240, height: 240 } },
+          async (decodedText) => {
+            await stopDedicatedQrScanner();
+            showToast("QR Kod okundu, damganız işleniyor...", "success");
+            await submitClaimToken(decodedText, "scanner");
+          },
+          () => {}
+        );
+        statusEl.textContent = "Kamerayı kasadaki QR koda doğrultun...";
+      } catch (err) {
+        appState.dedicatedRunning = false;
+        placeholder.classList.remove("hidden");
+        laserEl.classList.add("hidden");
+        statusEl.textContent = "Kamera izni alınamadı.";
+        showToast("Kamera izni verilmedi. Tarayıcı ayarlarından kamera iznini onaylayınız.", "warning");
+      }
+    }
+
+    async function stopDedicatedQrScanner() {
+      const laserEl = document.getElementById("dedicated-scanner-laser");
+      const placeholder = document.getElementById("dedicated-qr-placeholder");
+      const statusEl = document.getElementById("dedicated-scanner-status");
+      if (laserEl) laserEl.classList.add("hidden");
+      if (placeholder) placeholder.classList.remove("hidden");
+      if (statusEl) statusEl.textContent = "Kamera durduruldu.";
+      if (appState.dedicatedScanner && appState.dedicatedRunning) {
+        try { await appState.dedicatedScanner.stop(); await appState.dedicatedScanner.clear(); } catch (e) {}
+      }
+      appState.dedicatedRunning = false;
+    }
+
+    async function restartDedicatedQrScanner() { await stopDedicatedQrScanner(); await startDedicatedQrScanner(); }
+
+    // ---------- Telefon girişi: 5XX XXX XX XX ----------
+    function formatPhoneInput(value) {
+      let d = String(value || "").replace(/\D/g, "");
+      if (d.length > 10 && d.startsWith("90")) d = d.slice(2);
+      d = d.replace(/^0+/, "").slice(0, 10);
+      return [d.slice(0, 3), d.slice(3, 6), d.slice(6, 8), d.slice(8, 10)].filter(Boolean).join(" ");
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+      const pi = document.getElementById("login-phone-input");
+      if (pi) pi.addEventListener("input", () => { pi.value = formatPhoneInput(pi.value); });
+    });
+
+    // ---------- Uygulamayı yükle (ana ekran kartından; pop-up yok) ----------
+    // beforeinstallprompt sayfanın <head>'inde yakalanır (window.deferredPwaPrompt); burada yalnızca kurulum sonucu dinlenir.
+    window.addEventListener("appinstalled", async () => {
+      appState.justInstalled = true;
+      document.documentElement.classList.add("is-standalone");
+      updateEngageCard();
+      await claimInstallBonus();
+    });
+
+    // Tarayıcı / ortam tespiti: yalnızca doğru akışı ve doğru yönlendirme metnini seçmek için (asıl karar özellik denetimi).
+    function browserEnv() {
+      const ua = navigator.userAgent || "";
+      const ios = isIos();
+      let name = "other";
+      if (ios) name = /CriOS/.test(ua) ? "chrome-ios" : /FxiOS/.test(ua) ? "firefox-ios" : /EdgiOS/.test(ua) ? "edge-ios" : "safari-ios";
+      else if (/SamsungBrowser/i.test(ua)) name = "samsung";
+      else if (/Firefox\//.test(ua)) name = "firefox";
+      else if (/Edg(A)?\//.test(ua)) name = "edge";
+      else if (/OPR\/|Opera/.test(ua)) name = "opera";
+      else if (/Chrome\//.test(ua)) name = "chrome";
+      else if (/Safari\//.test(ua)) name = "safari";
+      const v = ua.match(/OS (\d+)[_.](\d+)/) || ua.match(/Version\/(\d+)\.(\d+)/) || [];
+      const major = parseInt(v[1] || "0", 10), minor = parseInt(v[2] || "0", 10);
+      return {
+        ios: ios, iosMajor: ios ? major : 0, android: /android/i.test(ua), name: name, mobile: ios || /android|mobile/i.test(ua),
+        // Uygulama içi tarayıcı (Instagram, Facebook, TikTok, QR okuyucu uygulamaları…): bildirim ve yükleme desteklenmez
+        inApp: /; wv\)|FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|Snapchat|musical_ly|Bytedance|TikTok|LinkedInApp|Pinterest|GSA\//i.test(ua)
+          || (ios && !/Safari\//.test(ua) && !isStandalone()),
+        // iPhone'da web bildirimi iOS 16.4+ ve yalnızca ana ekrana eklenmiş uygulamada çalışır (Apple kuralı)
+        iosWebPush: ios && (major > 16 || (major === 16 && minor >= 4))
+      };
+    }
+
+    // Kılavuz penceresi (#ios-guide-modal) tek yerden doldurulur: başlık, açıklama, adımlar, not, isteğe bağlı eylem düğmesi.
+    // Adım metinleri sabittir (kullanıcı verisi içermez).
+    function fillGuide(title, lead, steps, note, action, actionLabel) {
+      appState.guideKind = null;   // çağıran, doldurduktan sonra kendi türünü işaretler (ör. "install")
+      document.getElementById("ios-guide-title").textContent = title;
+      document.getElementById("ios-guide-lead").textContent = lead || "";
+      document.getElementById("ios-guide-steps").innerHTML = steps.map(s =>
+        `<li class="flex items-center gap-3 rounded-2xl bg-surface-low border border-outline-variant/30 p-3"><span class="w-10 h-10 shrink-0 rounded-xl bg-primary text-white flex items-center justify-center text-xl">${s[0]}</span><span class="text-xs text-on-surface leading-snug">${s[1]}</span></li>`).join("");
+      document.getElementById("ios-guide-note").textContent = note || "";
+      const btn = document.getElementById("ios-guide-action");
+      btn.classList.toggle("hidden", !action);
+      btn.onclick = action || null;
+      if (action) btn.textContent = actionLabel || "🌐 Tarayıcıda Aç";
+      const m = document.getElementById("ios-guide-modal");
+      m.classList.remove("hidden"); m.classList.add("flex");
+    }
+    function guideIsOpen(kind) {
+      const m = document.getElementById("ios-guide-modal");
+      return !!m && !m.classList.contains("hidden") && (!kind || appState.guideKind === kind);
+    }
+    function closeIosGuide() {
+      appState.guideKind = null;
+      const m = document.getElementById("ios-guide-modal");
+      if (m) { m.classList.add("hidden"); m.classList.remove("flex"); }
+    }
+    // ADR-38: hediye damgalar panelden kapatılabilir; kapalıyken "+1 hediye damga" vaadi gösterilmez ve istenmez.
+    function installGiftOn() {
+      const c = appState.customer;
+      return !!c && c.bonus_install_enabled !== false && !c.pwa_bonus_claimed;
+    }
+    function notifGiftOn() {
+      const c = appState.customer;
+      return !!c && c.bonus_notif_enabled !== false && !c.notif_bonus_claimed;
+    }
+    function installGiftText() {
+      return installGiftOn() ? " Ekleyince +1 hediye damga kazanırsın." : "";
+    }
+
+    // iPhone/iPad: Apple ana ekrana eklemeyi yalnızca Paylaş menüsünden yaptırır (otomatik pencere yok); adımlar tarayıcıya göre.
+    // reason="notif": iPhone'da bildirim yalnızca ana ekran uygulamasında açılabildiği için önce ekleme gösterilir.
+    function openInstallSheet(reason) {
+      const env = browserEnv();
+      const share = {
+        "chrome-ios": "Adres çubuğundaki <strong>Paylaş</strong> (□↑) simgesine dokun.",
+        "firefox-ios": "<strong>☰</strong> menüsüne dokunup <strong>Paylaş</strong>'ı seç.",
+        "edge-ios": "Alttaki <strong>⋯</strong> menüsüne dokunup <strong>Paylaş</strong>'ı seç."
+      }[env.name] || "Alttaki <strong>Paylaş</strong> (□↑) simgesine dokun (görmüyorsan önce <strong>⋯</strong> simgesine).";
+      const lead = reason === "notif"
+        ? "iPhone'da bildirimler yalnızca ana ekrana eklenen uygulamada açılabilir (Apple kuralı). Bir kez ekle; sonra ana ekrandaki simgeden açıp “Bildirimleri Aç”a dokun, izin penceresi hemen açılır." + installGiftText()
+        : "Uygulamayı ana ekrana eklemek 3 dokunuş." + installGiftText();
+      let note = env.ios && !env.iosWebPush
+        ? (reason === "notif" ? "Bildirimler için iPhone'un iOS 16.4 veya üstü olmalı." : "Bu iOS sürümünde ana ekrana ekleme yalnızca Safari'de çalışır.")
+        : "Bu bir web uygulamasıdır; dosya indirmez, App Store gerekmez.";
+      if (reason === "notif") note += " Uygulamada numaranla bir kez daha giriş yapman gerekebilir.";
+      fillGuide("📱 Ana Ekrana Ekle", lead, [
+        ["📤", "<strong>1.</strong> " + share],
+        ["➕", "<strong>2.</strong> Listeden <strong>“Ana Ekrana Ekle”</strong>yi seç (görmüyorsan listeyi aşağı kaydır). “Ana Ekrana Ekle” listede yoksa sayfa bir uygulamanın içinde açılmıştır: pusula (🧭) simgesiyle Safari'de aç."],
+        ["✅", "<strong>3.</strong> <strong>Ekle</strong>'ye dokun (“Web Uygulaması Olarak Aç” seçeneği varsa açık bırak), sonra ana ekrandaki simgeden uygulamayı aç."]
+      ], note, null);
+      appState.guideKind = "ios-install";
+    }
+
+    // Uygulama içi tarayıcı (Instagram, Facebook, TikTok, QR okuyucu uygulamaları…): bildirim ve ana ekrana ekleme yalnızca
+    // telefonun kendi tarayıcısında çalışır. Android'de tek dokunuşla varsayılan tarayıcıya geçilir.
+    function openBrowserSheet(reason) {
+      const env = browserEnv();
+      const what = reason === "notif" ? "Bildirimler" : "Uygulamayı yükleme";
+      const lead = what + " bu uygulama içi tarayıcıda çalışmıyor. Sayfayı telefonunun tarayıcısında aç; numaranla giriş yapıp kaldığın yerden devam edersin.";
+      if (env.android) {
+        fillGuide("🌐 Tarayıcıda Aç", lead, [
+          ["🌐", "<strong>1.</strong> Aşağıdaki <strong>Tarayıcıda Aç</strong> düğmesine dokun."],
+          ["⋮", "<strong>2.</strong> Açılmazsa sağ üstteki <strong>⋮</strong> menüsünden <strong>“Tarayıcıda aç”</strong>ı seç."]
+        ], "", openInExternalBrowser);
+        appState.guideKind = "browser";
+        return;
+      }
+      // iOS 17+: x-safari-https:// şeması uygulama içi görünümden Safari'yi doğrudan açar; olmazsa elle adımlar geçerli
+      fillGuide("🌐 Safari'de Aç", lead, [
+        ["⋯", "<strong>1.</strong> Sağ alttaki veya sağ üstteki <strong>⋯</strong> (ya da pusula 🧭) simgesine dokun."],
+        ["🧭", "<strong>2.</strong> <strong>“Safari'de Aç”</strong> (veya “Tarayıcıda aç”) seçeneğine dokun."]
+      ], "", env.iosMajor >= 17 ? openInSafari : null, "🧭 Safari'de Aç");
+      appState.guideKind = "browser";
+    }
+    function openInSafari() {
+      location.href = "x-safari-" + location.origin + APP_BASE + "kart/";
+    }
+    // Yardım bölümü (Profil): algılanan telefon / tarayıcı yazılır, uygulama içi tarayıcıdaysa "Tarayıcıda Aç" düğmesi görünür.
+    function renderHelp() {
+      const env = browserEnv();
+      const names = { chrome: "Chrome", safari: "Safari", samsung: "Samsung Internet", firefox: "Firefox", edge: "Edge", opera: "Opera",
+        "chrome-ios": "Chrome", "firefox-ios": "Firefox", "edge-ios": "Edge" };
+      const os = env.ios ? "iPhone / iPad" : (env.android ? "Android" : "Bilgisayar");
+      const el = document.getElementById("help-env");
+      if (el) el.textContent = "Algılanan: " + os + " · " + (env.inApp ? "uygulama içi tarayıcı (Instagram, QR okuyucu vb.)" : (names[env.name] || "tarayıcı")) +
+        (isStandalone() ? " · uygulama yüklü ✓" : "");
+      const b = document.getElementById("help-open-browser");
+      if (b) b.classList.toggle("hidden", !env.inApp);
+    }
+    // Ana ekrandan / kılavuzdan: Profil'deki yardım bölümüne gider ve ilgili başlığı açar (topic: notif | install | warn)
+    function openHelp(topic) {
+      switchTab("profil");
+      renderHelp();
+      const d = topic && document.getElementById("help-" + topic);
+      if (d) d.open = true;
+      const sec = document.getElementById("help-section");
+      if (sec) setTimeout(() => sec.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    }
+    function openInExternalBrowser() {
+      const target = location.origin + APP_BASE + "kart/";
+      location.href = "intent://" + target.replace(/^https?:\/\//, "") + "#Intent;scheme=https;S.browser_fallback_url=" + encodeURIComponent(target) + ";end";
+    }
+
+    // Chrome/Edge/Samsung/Opera: yükleme olayı sayfa açıldıktan birkaç saniye sonra gelebilir (kısa süre beklenir)
+    function waitForInstallPrompt(ms) {
+      return new Promise((resolve) => {
+        if (window.deferredPwaPrompt) { resolve(window.deferredPwaPrompt); return; }
+        let t = null;
+        const done = () => { clearTimeout(t); window.removeEventListener("m1-installable", done); resolve(window.deferredPwaPrompt); };
+        t = setTimeout(done, ms);
+        window.addEventListener("m1-installable", done);
+      });
+    }
+    // Uygulama zaten yüklüyse tarayıcı yükleme penceresi göstermez: Chrome/Android'de manifest related_applications ile sorulur
+    async function isAppAlreadyInstalled() {
+      try {
+        if (typeof navigator.getInstalledRelatedApps !== "function") return false;
+        const apps = await withTimeout(navigator.getInstalledRelatedApps(), 1500, []);
+        return Array.isArray(apps) && apps.length > 0;
+      } catch (e) { return false; }
+    }
+
+    // Dokunuşta HİÇBİR şey beklenmez: kılavuz/pencere anında görünür (kullanıcı eylemi bozulmaz, olay kaybolmaz).
+    function installApp() {
+      const env = browserEnv();
+      if (isStandalone()) { showToast("Uygulamadasın ✓ Ana ekrandaki simgeden her zaman açabilirsin."); return; }
+      if (env.inApp) { openBrowserSheet("install"); return; }
+      if (env.ios) { openInstallSheet("install"); return; }
+      if (window.deferredPwaPrompt) { runInstallPrompt(window.deferredPwaPrompt); return; }
+      openInstallGuide();   // Firefox / Samsung / masaüstü vb. ya da olay henüz gelmedi: adımlar hemen görünür
+    }
+
+    // Tarayıcının kendi "Uygulamayı yükle" penceresi: prompt() dokunuşla aynı anda (önünde bekleme yok) çağrılır.
+    // Olay yalnızca prompt() başarılı olunca tüketilir; hata olursa geri konur ve "Şimdi Yükle" düğmesi gösterilir.
+    function runInstallPrompt(ev) {
+      if (!ev || typeof ev.prompt !== "function") { openInstallGuide(); return; }
+      let asking;
+      try { asking = ev.prompt(); }
+      catch (e) { window.deferredPwaPrompt = ev; showInstallNowButton(); return; }
+      window.deferredPwaPrompt = null;   // olay yalnızca bir kez kullanılabilir
+      Promise.resolve(asking).then(() => {
+        if (guideIsOpen("install")) closeIosGuide();
+        return ev.userChoice;
+      }).then((choice) => {
+        if (choice && choice.outcome === "accepted") {
+          appState.justInstalled = true; updateEngageCard();
+          claimInstallBonus();   // kurulum kabul edildi: tek seferlik indirme damgası (sunucu tekrarı engeller)
+        }
+      }).catch(() => {
+        if (!window.deferredPwaPrompt) window.deferredPwaPrompt = ev;
+        showInstallNowButton();
+      });
+    }
+    // Kılavuzdaki eylem düğmesi: kullanıcı dokunuşuyla yükleme penceresini yeniden dener
+    function showInstallNowButton() {
+      if (!guideIsOpen("install")) openInstallGuide(true);
+      const btn = document.getElementById("ios-guide-action");
+      if (!btn) return;
+      btn.textContent = "📲 Şimdi Yükle";
+      btn.classList.remove("hidden");
+      btn.onclick = () => runInstallPrompt(window.deferredPwaPrompt);
+    }
+    window.addEventListener("m1-installable", () => { if (guideIsOpen("install")) showInstallNowButton(); });
+
+    // Tarayıcıya özgü yükleme adımları (kart içi kılavuz ve açılır kılavuz ortak kullanır)
+    function installGuideSteps(env) {
+      return {
+        firefox: ["Tarayıcı menüsüne (<strong>⋮</strong>) dokunun.", "<strong>Yükle</strong> ya da <strong>Ana ekrana ekle</strong> seçeneğine dokunun.", "Açılan pencerede <strong>Ekle</strong>'yi onaylayın."],
+        samsung: ["Adres çubuğundaki <strong>⬇ Yükle</strong> simgesine ya da alttaki <strong>≡</strong> menüsüne dokunun.", "<strong>Sayfayı ekle</strong> → <strong>Ana ekran</strong>'ı seçin.", "<strong>Ekle</strong>'yi onaylayın."],
+        safari: ["Menü çubuğunda <strong>Dosya</strong>'yı açın.", "<strong>Dock'a Ekle</strong>'yi seçin.", "<strong>Ekle</strong>'yi onaylayın."]
+      }[env.name] || (env.mobile
+        ? ["Tarayıcı menüsünü açın (<strong>⋮</strong> veya <strong>⋯</strong>).", "<strong>Uygulamayı yükle</strong> ya da <strong>Ana ekrana ekle</strong> seçeneğine dokunun.", "Açılan pencerede <strong>Yükle</strong>'yi onaylayın."]
+        : ["Adres çubuğunun sağındaki <strong>yükle (⊕)</strong> simgesine tıklayın; yoksa tarayıcı menüsünü (<strong>⋮</strong>) açın.", "<strong>Uygulamayı yükle</strong>'yi seçin.", "<strong>Yükle</strong>'yi onaylayın."]);
+    }
+
+    // Yükleme kılavuzu her yerden (Profil yardım düğmesi dahil) görünür olsun diye ortak pencerede açılır; kart içi kılavuz da açılır.
+    function openInstallGuide(skipWait) {
+      const env = browserEnv();
+      const lead = "Tarayıcının yükleme penceresi hazırlanıyor. Açılmazsa şu adımlarla ekleyebilirsin." + installGiftText();
+      fillGuide("📲 Uygulamayı Yükle", lead,
+        installGuideSteps(env).map((t, i) => [String(i + 1), t]),
+        "Bu bir web uygulamasıdır; dosya indirmez, mağaza gerekmez.", null);
+      appState.guideKind = "install";
+      toggleInstallGuide(true);
+      if (window.deferredPwaPrompt) { showInstallNowButton(); }
+      else if (!skipWait && "onbeforeinstallprompt" in window) {
+        waitForInstallPrompt(2500).then((ev) => {
+          if (ev && guideIsOpen("install")) runInstallPrompt(ev);
+        });
+      }
+      isAppAlreadyInstalled().then((yes) => {
+        if (!yes || !guideIsOpen("install")) return;
+        const l = document.getElementById("ios-guide-lead");
+        if (l) l.textContent = "Uygulama bu telefonda zaten yüklü ✓ Ana ekrandaki simgeden açabilirsin.";
+      }).catch(() => {});
+    }
+
+    function toggleInstallGuide(forceOpen) {
+      const box = document.getElementById("engage-install-guide");
+      if (!box) return;
+      const steps = installGuideSteps(browserEnv());
+      document.getElementById("pwa-guide-steps").innerHTML = steps.map(s => `<li>${s}</li>`).join("");
+      if (forceOpen === true) box.classList.remove("hidden"); else box.classList.toggle("hidden");
+    }
+
+    // Uygulama ana ekrandan açıldığında (veya kurulum kabul edildiğinde) otomatik: tek seferlik indirme damgası.
+    // Sunucu tekrarı engeller (pwa_bonus_claimed; yeniden kayıtta taşınır). Kullanıcı başlatımlı "Yükledim" düğmesi yok.
+    async function claimInstallBonus() {
+      if (!appState.identified) return;
+      if (!isStandalone() && !appState.justInstalled) return;
+      if (appState.customer && (appState.customer.pwa_bonus_claimed || appState.customer.bonus_install_enabled === false)) return;
+      try {
+        const res = await apiFetch("/api/claim-install-bonus", { method: "POST", body: JSON.stringify({ device_token: getStoredToken() }) });
+        if (res.status === "success") {
+          if (appState.customer) appState.customer.pwa_bonus_claimed = 1;
+          await loadHomeData(true);
+          showToast(res.message || "Tebrikler! +1 Ücretsiz Damga eklendi! 🎉", "success");
+        } else if (res.status === "pending" && appState.customer) {
+          // ADR-39: hediye ilk kasa damgasıyla birlikte eklenecek
+          appState.customer.pwa_bonus_claimed = 1;
+          await loadHomeData(false);
+          showToast(res.message, "success");
+        } else if (res.status === "already_claimed" && appState.customer) {
+          appState.customer.pwa_bonus_claimed = 1;
+        }
+      } catch (err) { /* sessiz: kullanıcı başlatmadı, bir sonraki açılışta tekrar denenir */ }
+    }
+
+    // ---------- Web Push (kampanya bildirimleri = ticari ileti onayı) ----------
+    // Evrensel VAPID dönüştürücü: boşluk/satır sonu/eksik-fazla "=" toleranslı, URL-safe ve standart base64'ü kabul eder,
+    // Firefox/Safari'nin katı tip denetimi için gerçek Uint8Array döner (Array.from/spread kullanmaz). Geçersizse hata fırlatır.
+    function urlBase64ToUint8Array(base64String) {
+      const clean = String(base64String == null ? "" : base64String).replace(/\s+/g, "").replace(/=+$/, "");
+      if (!clean) throw new Error("vapid-key-empty");
+      const std = (clean + "=".repeat((4 - (clean.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+      let raw;
+      try { raw = window.atob(std); } catch (e) { throw new Error("vapid-key-invalid"); }
+      const out = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+      return out;
+    }
+
+    async function currentSubscription() {
+      if (!appState.pushSupported) return null;
+      try {
+        const reg = await navigator.serviceWorker.getRegistration(APP_BASE);
+        return reg ? await reg.pushManager.getSubscription() : null;
+      } catch (e) { return null; }
+    }
+
+    // ---------- Bildirim motoru (ADR-23): tek doğru TARAYICININ GERÇEK İZNİ (Notification.permission) ----------
+    // 'granted' → her yerde "🔔 Bildirimler Açık" (yeşil, tıklanamaz rozet). Kapatma / abonelikten çıkma işlevi YOK.
+    // Kapalıysa "Bildirimleri Aç" tarayıcının kendi izin penceresini DOKUNUŞ ANINDA açar; izin verilirse (hak
+    // kullanılmadıysa) ANINDA +1 hediye damga, ardından Web Push aboneliği arka planda kurulur. İzin verilmezse damga yok;
+    // rehber veya tarayıcı/telefon ayarı yönlendirmesi yok.
+    function isNotificationReallyEnabled() { return notifPermission() === "granted"; }
+
+    async function vapidPublicKey() {
+      if (appState.vapidKey) return appState.vapidKey;
+      const keyRes = await apiFetch("/api/push/public-key");
+      appState.pushServiceEnabled = !!(keyRes.enabled && keyRes.public_key);
+      if (appState.pushServiceEnabled) appState.vapidKey = keyRes.public_key;
+      return appState.vapidKey || null;
+    }
+
+    // Abonelik, sunucunun ŞU ANKİ VAPID anahtarıyla mı yapılmış? Değilse push servisi 403 döner ve bildirim hiç gelmez.
+    function subscriptionMatchesKey(sub, key) {
+      try {
+        const cur = sub && sub.options && sub.options.applicationServerKey;
+        if (!cur || !key) return true;   // tarayıcı bilgiyi vermiyorsa karşılaştırma atlanır
+        const a = new Uint8Array(cur), b = urlBase64ToUint8Array(key);
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+        return true;
+      } catch (e) { return true; }
+    }
+
+    // Bu cihazda geçerli bir Web Push aboneliği sağlar (eski anahtarla yapılmışsa yenisiyle yeniden abone olur).
+    async function ensureBrowserSubscription() {
+      const key = await vapidPublicKey();
+      if (!key) throw new Error("push-disabled");
+      const reg = await navigator.serviceWorker.register(APP_BASE + "sw.js");
+      await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !subscriptionMatchesKey(sub, key)) { try { await sub.unsubscribe(); } catch (e) {} sub = null; }
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+      return sub;
+    }
+
+    // Kullanıcı hareketi OLMADAN (açılış, giriş sonrası, uygulama öne gelince, izin değişince): izin 'granted' ise hediye
+    // damga (hak kullanılmadıysa) verilir ve bu cihazın aboneliği onarılır (yoksa, sunucuda pasifse ya da VAPID anahtarı
+    // değiştiyse). ADR-36: hiçbir bildirim yolu (bu eşitleme de, "Bildirimleri Aç" da) kampanya onayı YAZMAZ.
+    async function syncPushState() {
+      if (!(appState.identified && appState.customer) || !isNotificationReallyEnabled()) return;
+      if (notifGiftOn()) await claimNotificationRewardStamp();
+      if (!appState.pushSupported) return;
+      const sub = await currentSubscription();
+      let repair = !sub;
+      if (sub) {
+        let st;
+        try { st = await apiFetch("/api/push/status", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint, device_token: getStoredToken() }) }); }
+        catch (e) { return; }
+        if (st.status !== "success") return;
+        if (appState.customer) appState.customer.marketing_consent = !!st.marketing_consent;
+        const key = await vapidPublicKey().catch(() => null);
+        repair = !(st.active && st.linked) || !!(key && !subscriptionMatchesKey(sub, key));
+      }
+      if (repair) await savePushSubscriptionInBackground();
+    }
+
+    // Tüm bildirim göstergeleri (Profil durum kutusu + üst bar zili) gerçek izne göre: açıkken ASLA kapalı gösterilmez;
+    // açıkken düğme tıklanamaz "✅ Açık" rozetidir (kapatma / abonelikten çıkma işlevi yok).
+    function syncNotificationStatusUI() {
+      const on = isNotificationReallyEnabled();
+      const c = appState.customer;
+      const box = document.getElementById("inAppNotificationBanner");
+      const icon = document.getElementById("notifStatusIcon");
+      const title = document.getElementById("notifStatusTitle");
+      const desc = document.getElementById("notifStatusDesc");
+      const btn = document.getElementById("enableNotifBtn");
+      if (box) box.classList.toggle("is-active", on);
+      if (icon) icon.textContent = on ? "🔔" : "🔕";
+      if (title) title.textContent = on ? "Bildirimler Açık" : "Bildirimler Kapalı";
+      if (desc) {
+        desc.textContent = on
+          ? (c && c.marketing_consent ? "Kampanya, damga ve ödül bildirimleriniz aktif." : "Damga ve ödül bildirimleriniz aktif.")
+          : (notifGiftOn() ? "Bildirimleri açarak +1 hediye damga kazanabilirsin!" : "Bildirimleri açarak anında haberdar ol!");
+      }
+      if (btn) {
+        btn.textContent = on ? "✅ Açık" : "Bildirimleri Aç";
+        btn.classList.toggle("is-granted", on);
+        btn.disabled = on;
+      }
+      document.querySelectorAll(".js-notif-bell").forEach(b => {
+        const label = on ? "Bildirimler açık" : "Bildirimleri aç";
+        b.classList.toggle("is-on", on);
+        b.disabled = on;
+        b.setAttribute("aria-label", label);
+        b.title = label;
+      });
+      document.querySelectorAll(".js-notif-icon").forEach(i => { i.textContent = on ? "🔔" : "🔕"; });
+    }
+
+    // Profil › Kampanya Bildirimleri anahtarı sunucudaki ticari ileti onayını (marketing_consent) yansıtır.
+    function syncCampaignConsentUI() {
+      const sw = document.getElementById("campaign-consent-switch");
+      if (!sw) return;
+      const c = appState.customer;
+      sw.checked = !!(c && c.marketing_consent);
+      sw.disabled = !(appState.identified && c) || appState.consentBusy === true;
+    }
+
+    // Onay yeniden verilebilir ya da geri alınabilir (ETK m.8: ret ücretsiz ve kolay). Yalnızca kampanya bildirimleri etkilenir;
+    // tarayıcı izni ve damga/ödül bildirimleri değişmez. Tarayıcı/telefon ayarına yönlendirme yok.
+    async function handleCampaignConsentToggle(event) {
+      const want = !!(event && event.target && event.target.checked);
+      if (!(appState.identified && appState.customer) || appState.consentBusy) { syncCampaignConsentUI(); return; }
+      appState.consentBusy = true;
+      syncCampaignConsentUI();
+      try {
+        const res = await apiFetch("/api/me/marketing-consent", { method: "POST", body: JSON.stringify({ consent: want, device_token: getStoredToken() }) });
+        if (res.status !== "success") throw new Error("consent-save-failed");
+        appState.customer.marketing_consent = want;
+        appState.customer.marketing_reconfirm_pending = false;   // açık seçim yeniden onay kartını da çözer
+        showToast(want ? "Kampanya bildirimleri açıldı." : "Kampanya bildirimleri kapatıldı. İstediğin zaman tekrar açabilirsin.", want ? "success" : "warning");
+      } catch (e) {
+        showToast("İşlem kaydedilemedi. İnternet bağlantını kontrol edip tekrar dene.", "error");
+      } finally {
+        appState.consentBusy = false;
+        updatePushUI();
+      }
+    }
+
+    function updatePushUI() {
+      syncNotificationStatusUI();
+      syncCampaignConsentUI();
+      updateEngageCard();
+      updateReconfirmCard();
+    }
+
+    // ADR-36: eski "Bildirimleri Aç" onayı geçersiz sayılan müşteriye bir kez sakin kart (sunucu bayrağı: marketing_reconfirm_pending).
+    function updateReconfirmCard() {
+      const card = document.getElementById("home-reconfirm-card");
+      if (!card) return;
+      const c = appState.customer;
+      card.classList.toggle("hidden", !(appState.identified && c && c.marketing_reconfirm_pending));
+    }
+    // answer: yes | no | dismiss. Yalnızca sunucu kaydı başarılıysa kart kapanır; hata olursa kart durur ve tekrar denenebilir.
+    async function answerReconfirm(answer) {
+      if (appState.reconfirmBusy || !(appState.identified && appState.customer)) return;
+      appState.reconfirmBusy = true;
+      try {
+        const res = await apiFetch("/api/me/marketing-reconfirm", { method: "POST", body: JSON.stringify({ answer: answer, device_token: getStoredToken() }) });
+        if (res.status !== "success" && res.status !== "not_pending") throw new Error("reconfirm-failed");
+        appState.customer.marketing_reconfirm_pending = false;
+        appState.customer.marketing_consent = !!res.marketing_consent;
+        if (answer === "yes") showToast("Kampanya bildirimleri açıldı. İstediğin an Profil'den kapatabilirsin.");
+        else if (answer === "no") showToast("Tamam, kampanya bildirimi göndermeyeceğiz. Damga ve ödül bildirimleri sürer.", "warning");
+      } catch (e) {
+        showToast("İşlem kaydedilemedi. İnternet bağlantını kontrol edip tekrar dene.", "error");
+      } finally {
+        appState.reconfirmBusy = false;
+        updatePushUI();
+      }
+    }
+
+    function isOfferDismissed() {
+      if (appState.offerDismissed) return true;
+      try { return sessionStorage.getItem("m1_notif_offer_dismissed") === "1"; } catch (e) { return false; }
+    }
+    function dismissNotifOffer() {
+      appState.offerDismissed = true;
+      try { sessionStorage.setItem("m1_notif_offer_dismissed", "1"); } catch (e) {}
+      updateEngageCard();
+    }
+
+    // Ana ekran kartları: (1) zorlamayan hediye damga teklifi (hak kullanılmadıysa), (2) sakin durum kartı (bildirim düğmesi / uygulamayı yükle).
+    // Cihaz durumuna bakar (bonus bayrağına değil): uygulamayı silip tarayıcıdan girenlere de görünür. Hiç eksik yoksa kartlar gizlenir.
+    function updateEngageCard() {
+      const card = document.getElementById("home-engage-card");
+      const offer = document.getElementById("home-notif-offer");
+      if (!card) return;
+      const member = !!(appState.identified && appState.customer);
+      const installed = isStandalone() || !!appState.justInstalled;
+      const notifOn = member && isNotificationReallyEnabled();
+      const giftAvailable = member && notifGiftOn();
+      const showOffer = member && !notifOn && giftAvailable && !isOfferDismissed();
+      const showNotifBtn = member && !notifOn && !showOffer;
+      const showInstall = !installed;
+      if (offer) offer.classList.toggle("hidden", !showOffer);
+      document.getElementById("engage-notif-btn").classList.toggle("hidden", !showNotifBtn);
+      document.getElementById("engage-notif-ok").classList.toggle("hidden", !(notifOn && showInstall));
+      document.getElementById("engage-install-btn").classList.toggle("hidden", !showInstall);
+      if (!showInstall) document.getElementById("engage-install-guide").classList.add("hidden");
+      card.classList.toggle("hidden", !(showNotifBtn || showInstall));
+    }
+
+    // pushManager.subscribe() push servisine ulaşamazsa HİÇ sonuçlanmayabilir (hata da vermez): abonelik denemeleri
+    // süreyle sınırlanır. Hediye damga aboneliği BEKLEMEZ (önce verilir).
+    const PUSH_SUBSCRIBE_TIMEOUT_MS = 12000;
+    function withTimeout(promise, ms, fallback) {
+      return Promise.race([promise, new Promise(r => setTimeout(() => r(fallback), ms))]);
+    }
+
+    // Bu cihazın Web Push aboneliğini kurar/onarır ve sunucuya kaydeder (uygulama kapalıyken de bildirim ulaşsın).
+    // ADR-36: abonelik kampanya onayı yazmaz (sunucu da `marketing_consent` alanını yok sayar).
+    async function savePushSubscription() {
+      if (!appState.pushSupported || !isNotificationReallyEnabled()) return { status: "unsupported" };
+      const sub = await ensureBrowserSubscription();
+      const j = sub.toJSON();
+      const res = await apiFetch("/api/push/subscribe", { method: "POST", body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys, device_token: getStoredToken() }) });
+      return res;
+    }
+    function savePushSubscriptionInBackground() {
+      return withTimeout(savePushSubscription().catch(() => ({ status: "error" })), PUSH_SUBSCRIBE_TIMEOUT_MS, { status: "timeout" });
+    }
+
+    // İzin 'granted' iken tek seferlik +1 hediye damga (sunucu tekrarı engeller) ve damga sayısının anında güncellenmesi.
+    async function claimNotificationRewardStamp() {
+      if (!(appState.identified && appState.customer) || !isNotificationReallyEnabled() || appState.notifClaiming) return { ok: false, bonus: false };
+      appState.notifClaiming = true;
+      try {
+        const res = await apiFetch("/api/customer/notification-permission", {
+          method: "POST",
+          body: JSON.stringify({ device_token: getStoredToken(), permission: notifPermission() })
+        });
+        if (res.status !== "success") return { ok: false, bonus: false };
+        if (appState.customer && res.bonus_status !== "disabled") {
+          appState.customer.notif_bonus_claimed = 1;
+        }
+        if (res.bonus_awarded) {
+          await loadHomeData(true);   // kart ve damga sayısı anında güncellenir
+          showToast(res.message || "Teşekkürler! Bildirimleri açtığın için +1 Hediye Damga hesabına eklendi! 🎁");
+          showWelcomeNotification();
+        } else if (res.bonus_status === "pending") {
+          showToast(res.message);   // ADR-39: hediye ilk kasa damgasıyla birlikte eklenecek
+        }
+        return { ok: true, bonus: !!res.bonus_awarded };
+      } catch (e) {
+        return { ok: false, bonus: false };
+      } finally {
+        appState.notifClaiming = false;
+      }
+    }
+
+    // İzin verildiğinde tek seferlik karşılama bildirimi: yalnızca damga mesajı (kapatma metni / "Kapat" düğmesi YOK).
+    async function showWelcomeNotification() {
+      if (!isNotificationReallyEnabled()) return;
+      const logo = document.getElementById("header-logo");
+      const title = "☕ Bildirimler Açıldı!";
+      const options = {
+        body: "Tebrikler! Bildirimleri açtığınız için damganız hesabınıza tanımlandı.",
+        icon: (logo && logo.src) || (APP_BASE + "static/img/icon-192.png"),
+        badge: APP_BASE + "static/img/badge-96.png",
+        tag: "notif-welcome",
+        lang: "tr"
+      };
+      try {
+        const reg = ("serviceWorker" in navigator) ? await withTimeout(navigator.serviceWorker.getRegistration(APP_BASE), 3000, null) : null;
+        if (reg && typeof reg.showNotification === "function") { await reg.showNotification(title, options); return; }
+      } catch (e) {}
+      try { new Notification(title, options); } catch (e) {}   // Android Chrome'da yapıcı yoktur: sessizce atlanır
+    }
+
+    // Bildirim API'si bu ortamda yok: iPhone tarayıcı sekmesi (Apple: yalnızca ana ekran uygulaması) → ana ekrana ekleme
+    // kılavuzu; uygulama içi tarayıcı → "Tarayıcıda Aç"; diğerleri → kısa bilgi.
+    function showNotificationUnavailable() {
+      const env = browserEnv();
+      if (env.inApp) { openBrowserSheet("notif"); return; }
+      if (env.ios && !isStandalone()) { openInstallSheet("notif"); return; }
+      showToast(env.ios ? "Bildirimler için iPhone'un iOS 16.4 veya üstü olmalı." : "Bu tarayıcı bildirimleri desteklemiyor. Chrome, Safari, Edge veya Samsung Internet ile açabilirsin.", "warning");
+    }
+    // İzin daha önce "Engelle" ile reddedildiyse tarayıcılar izin penceresini bir daha göstermez (site bunu değiştiremez)
+    function notificationBlockedText() {
+      if (isStandalone() && browserEnv().ios) {
+        return "Bildirim izni bu uygulama için kapalı. iPhone Ayarlar › Bildirimler › " + (BUSINESS_NAME || "bu uygulama") + " › “Bildirimlere İzin Ver”i aç; uygulamaya dönünce otomatik algılanır.";
+      }
+      return isStandalone()
+        ? "Bu uygulama için bildirimler daha önce engellenmiş; izin penceresi yeniden açılamıyor."
+        : "Bu tarayıcı bildirimleri daha önce engellediği için izin penceresini yeniden açmıyor. İzin vermek istersen adres çubuğundaki simgeye dokunup Bildirimler'i “İzin ver” yap.";
+    }
+    // İzin "engelli" ya da verilmedi: iPhone'da (sekme / uygulama içi tarayıcı) adres çubuğu uyarısı anlamsız; kılavuz açılır.
+    function notifNeedsGuide() {
+      const env = browserEnv();
+      return env.inApp || (env.ios && !isStandalone());
+    }
+    function showNotificationBlocked() {
+      if (notifNeedsGuide()) { showNotificationUnavailable(); return; }
+      showToast(notificationBlockedText(), "warning");
+      openHelp("notif");
+    }
+    function showNotificationNotGranted(perm) {
+      if (notifNeedsGuide()) { showNotificationUnavailable(); return; }
+      // İzin verilmedi (Engelle / pencere kapatıldı): damga YOK
+      showToast("Bildirim izni verilmedi; hediye damga eklenmedi.", "warning");
+      if (perm === "denied") openHelp("notif");
+    }
+    const NOTIF_QUIET_HINT = "İzin penceresi görünmediyse adres çubuğundaki 🔔 simgesine dokunup “İzin ver”i seç.";
+
+    // "Bildirimleri Aç" (üst bar zili, Profil durum kutusu, ana sayfa kartları): tarayıcının kendi izin penceresi
+    // ("… bildirim göndermek istiyor: İzin Ver / Engelle") DOKUNUŞ ANINDA, ilk await'ten önce açılır (Safari/Firefox şartı).
+    async function requestNotificationAndRewardStamp() {
+      const current = notifPermission();
+      if (current === "unsupported") { showNotificationUnavailable(); return; }
+      if (current === "denied") { showNotificationBlocked(); return; }
+      let perm = current;
+      if (current === "default") {
+        appState.notifPromptPending = true;
+        const asking = requestNotifPermission();
+        // Chrome'un "sessiz" izin arayüzü pencere yerine adres çubuğunda küçük bir zil gösterir: yeri söylenir
+        const hint = setTimeout(() => { if (appState.notifPromptPending) showToast(NOTIF_QUIET_HINT, "warning"); }, 6000);
+        perm = await asking;
+        clearTimeout(hint);
+        appState.notifPromptPending = false;
+      }
+      updatePushUI();
+      if (perm !== "granted") { showNotificationNotGranted(perm); return; }
+      const r = await claimNotificationRewardStamp();
+      if (!r.bonus) showToast("🔔 Bildirimler açık! Damga ve ödül durumunda anında haberin olacak.");
+      savePushSubscriptionInBackground().then(updatePushUI);
+    }
+
+    // Uygulama öne gelince / izin tarayıcıdan değişince eşitleme (aynı izinle 5 dakikada birden sık değil).
+    let lastPushSync = { perm: null, at: 0 };
+    function maybeSyncPushState() {
+      const perm = notifPermission();
+      if (perm === lastPushSync.perm && Date.now() - lastPushSync.at < 5 * 60 * 1000) return;
+      lastPushSync = { perm: perm, at: Date.now() };
+      syncPushState().catch(() => {}).finally(updatePushUI);
+    }
+    // İzin tarayıcıdan değiştirilirse (Chrome/Edge/Firefox/Safari 16+) göstergeler anında güncellenir.
+    function watchNotificationPermission() {
+      try {
+        if (!navigator.permissions || typeof navigator.permissions.query !== "function") return;
+        navigator.permissions.query({ name: "notifications" })
+          .then((status) => { status.onchange = () => { updatePushUI(); if (!appState.notifPromptPending) maybeSyncPushState(); }; })
+          .catch(() => {});
+      } catch (e) {}
+    }
+
+    // ---------- Site içi anlık bildirim: uygulama ekrandayken yeni damga / ödül / kampanya ----------
+    // Uygulama arka plandan öne gelince hemen, ekrandayken 45 sn'de bir sunucu durumu okunur; değişiklik toast ile bildirilir
+    // (yalnızca damga/ödül/kampanya mesajı; kapatma metni yok). Kampanya toast'u yalnızca ticari ileti onayı olana.
+    const IN_APP_POLL_MS = 45000;
+    let inAppPolling = false;
+    function campaignKey(c) { return c && c.id != null ? "id:" + c.id : "t:" + ((c && c.title) || ""); }
+    // Ödüllü kampanya durumu (ör. kasiyer onayladı) değişince kartlar yeniden çizilir
+    function campaignSig(list) { return (list || []).map(c => campaignKey(c) + ":" + (c.my_status || "")).join("|"); }
+
+    async function pollInAppNotifications() {
+      if (inAppPolling || document.hidden || appState.notifClaiming) return;
+      if (!(appState.identified && appState.customer)) return;
+      inAppPolling = true;
+      try {
+        const data = await apiFetch("/api/home-data");
+        if (!data || !data.identified || !data.customer) return;
+        const prev = appState.customer, next = data.customer;
+        const known = new Set((appState.campaigns || []).map(campaignKey));
+        const fresh = (data.campaigns || []).filter(c => !known.has(campaignKey(c)));
+        const gained = prev.total_lifetime_stamps == null ? 0 : Number(next.total_lifetime_stamps || 0) - Number(prev.total_lifetime_stamps || 0);
+        const rewardUp = Number(next.usable_rewards_count || 0) > Number(prev.usable_rewards_count || 0);
+        const changed = gained !== 0 || ["current_stamps", "usable_rewards_count", "marketing_consent", "marketing_reconfirm_pending", "notif_bonus_claimed"].some(k => prev[k] !== next[k]);
+        if (changed) updateCustomerUI(Object.assign({}, prev, next), gained > 0);
+        if (fresh.length || campaignSig(data.campaigns) !== campaignSig(appState.campaigns)) {
+          appState.campaigns = data.campaigns || [];
+          renderCampaigns(appState.campaigns);
+        }
+        if (rewardUp) showToast("🎁 Tebrikler! Hediye kahveniz hazır. Kasada personeli bilgilendirin.");
+        else if (gained > 0) showToast(`☕ +${gained} damga eklendi! (${next.current_stamps} / ${next.stamp_target || appState.stampTarget})`);
+        else if (fresh.length && next.marketing_consent !== false) showToast("📣 Yeni kampanya: " + (fresh[0].title || "Duyuru"));
+      } catch (e) {
+        // ağ hatası: bir sonraki turda tekrar denenir
+      } finally {
+        inAppPolling = false;
+      }
+    }
+
+    // ---------- Profil / KVKK silme / çıkış ----------
+    async function handleProfileUpdate(e) {
+      e.preventDefault();
+      const input = document.getElementById("profile-name-input");
+      const btn = document.getElementById("profile-save-btn");
+      const newName = input.value.trim();
+      if (!newName || newName.length < 2) { showToast("Kullanıcı adı en az 2 karakter olmalıdır.", "error"); return; }
+      btn.disabled = true;
+      try {
+        const res = await apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify({ display_name: newName, device_token: getStoredToken() }) });
+        if (res.status === "success") {
+          if (res.customer) updateCustomerUI(Object.assign({}, appState.customer, res.customer), false);
+          else await loadHomeData(false);
+          showToast(res.message || "Kullanıcı adınız güncellendi!");
+        } else showToast(res.message || "Güncelleme başarısız oldu.", "error");
+      } catch (err) { showToast("Bağlantı hatası oluştu.", "error"); }
+      finally { btn.disabled = false; }
+    }
+
+    async function handleDeleteMyData() {
+      if (!appState.customer) return;
+      if (!window.confirm("Hesabınız, damgalarınız ve ödülleriniz silinecek; telefon numaranız ve adınız kaldırılacaktır. Kötüye kullanımı önlemek için numaranızın ve cihazınızın anahtarlı bir özeti ile onay/güvenlik kayıtları Aydınlatma Metni'nde yazılı şekilde tutulur. Onaylıyor musunuz?")) return;
+      const phone = appState.customer.phone_e164 || appState.customer.formatted_phone;
+      let res;
+      try {
+        res = await apiFetch("/api/delete-my-data", { method: "POST", body: JSON.stringify({ phone: phone, device_token: getStoredToken() }) });
+      } catch (err) { showToast("Bağlantı hatası oluştu.", "error"); return; }
+      if (res.status === "success") {
+        clearStoredToken();
+        resetConsentBoxes();
+        appState.identified = false; appState.customer = null;
+        appState.campaigns = (appState.campaigns || []).map(c => Object.assign({}, c, { my_status: undefined, my_proof_name: undefined, my_reject_reason: undefined }));
+        applyIdentityUI(); renderCampaigns(appState.campaigns); showAuthScreen();
+        showToast("Hesabınız ve kişisel verileriniz silindi.");
+      } else showToast(res.message || "Silme işlemi başarısız oldu.", "error");
+    }
+
+    // KVKK m.11: hesaba bağlı kayıtların kopyasını JSON dosyası olarak indirir (silme ucuyla aynı doğrulama).
+    async function handleExportMyData() {
+      if (!appState.customer) return;
+      const btn = document.getElementById("export-my-data-btn");
+      if (btn) btn.disabled = true;
+      try {
+        const phone = appState.customer.phone_e164 || appState.customer.formatted_phone;
+        const res = await apiFetch("/api/me/export", { method: "POST", body: JSON.stringify({ phone: phone, device_token: getStoredToken() }) });
+        if (res.status !== "success") { showToast(res.message || "Veriler indirilemedi.", "error"); return; }
+        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "verilerim.json";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        showToast("Verileriniz indirildi (verilerim.json).");
+      } catch (err) { showToast("Bağlantı hatası oluştu.", "error"); }
+      finally { if (btn) btn.disabled = false; }
+    }
+
+    // Çıkışta/silmede onay kutuları temizlenir: bu cihazı kullanan bir sonraki kişinin kayıt ekranında kutular ÖNCEDEN
+    // İŞARETLİ gelmez (önceden işaretli onay geçersizdir).
+    function resetConsentBoxes() {
+      ["consent-kvkk", "consent-marketing"].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+      updateLoginBtn();
+    }
+
+    async function handleLogout() {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+      clearStoredToken();
+      resetConsentBoxes();
+      appState.identified = false; appState.customer = null;
+      appState.campaigns = (appState.campaigns || []).map(c => Object.assign({}, c, { my_status: undefined, my_proof_name: undefined, my_reject_reason: undefined }));
+      applyIdentityUI(); renderCampaigns(appState.campaigns); showAuthScreen();
+      showToast("Cihaz oturumu kapatıldı.");
+    }
+
+    // ---------- Personel ödül teslim bağlantısı (/r/{staff_token}) ----------
+    async function checkStaffRedeemFlow(staffToken) {
+      const modal = document.getElementById("staff-redeem-modal");
+      const statusEl = document.getElementById("staff-redeem-status");
+      const actionsEl = document.getElementById("staff-redeem-actions");
+      const confirmBtn = document.getElementById("staff-redeem-confirm-btn");
+      modal.classList.remove("hidden"); modal.classList.add("flex");
+      const res = await apiFetch("/api/redeem-check", { method: "POST", body: JSON.stringify({ staff_token: staffToken, device_token: getStoredToken() }) });
+      if (res.status !== "ready") { statusEl.textContent = res.message || "Kullanılabilir ödül bulunamadı."; actionsEl.classList.add("hidden"); return; }
+      statusEl.textContent = `Hazır "${res.reward_name}" ödülü bulunuyor.`;
+      actionsEl.classList.remove("hidden");
+      confirmBtn.onclick = async () => {
+        confirmBtn.disabled = true;
+        const c = await apiFetch("/api/redeem-confirm", { method: "POST", body: JSON.stringify({ staff_token: staffToken, reward_id: res.reward_id, device_token: getStoredToken() }) });
+        if (c.status === "success") { showToast(c.message || "Ödül başarıyla kullandırıldı!"); closeStaffRedeemModal(); await loadHomeData(false); }
+        else statusEl.textContent = c.message || "Hata oluştu.";
+        confirmBtn.disabled = false;
+      };
+    }
+    function closeStaffRedeemModal() { const m = document.getElementById("staff-redeem-modal"); m.classList.add("hidden"); m.classList.remove("flex"); }
+
+    // Canlı cihaz durumu (kasa/müdür "Cihaz: Yüklü PWA / Tarayıcı" rozeti): sayfa açılışı başına bir kez bildirilir
+    let clientStateReported = false;
+    function reportClientState() {
+      if (clientStateReported) return;
+      clientStateReported = true;
+      apiFetch("/api/me/client-state", { method: "POST", body: JSON.stringify({ standalone: isStandalone(), device_token: getStoredToken() }) }).catch(() => {});
+    }
+
+    // ---------- Veri yükleme ----------
+    async function loadHomeData(animateStamp = false) {
+      try {
+        const data = await apiFetch("/api/home-data");
+        if (data.device_token) saveStoredToken(data.device_token);
+        appState.stampTarget = Number(data.stamp_target || 5);
+        appState.dailyLimit = Number(data.daily_limit || 2);
+        appState.campaigns = data.campaigns || [];
+        appState.products = data.products || [];
+        appState.info = data.info || {};
+        appState.categories = data.categories || [];
+        renderCampaigns(appState.campaigns);
+        renderMenu(appState.products, data.menu_note);
+        applyBranding(appState.info);
+        applyGlobalNumbers();
+
+        if (data.identified && data.customer) {
+          updateCustomerUI(data.customer, animateStamp);
+          renderCampaigns(appState.campaigns);   // ödüllü görev kartları üyelik durumuna göre çizilir
+          reportClientState();
+          return true;
+        }
+        appState.identified = false; appState.customer = null;
+        applyIdentityUI();
+        renderCampaigns(appState.campaigns);
+        if (!GUEST_MODE && appState.currentTab !== "qrokut") showAuthScreen();
+        return false;
+      } catch (err) {
+        if (appState.identified && appState.customer) { updateCustomerUI(appState.customer, false); return true; }
+        if (!GUEST_MODE && appState.currentTab !== "qrokut") showAuthScreen();
+        return false;
+      }
+    }
+
+    // ---------- Başlangıç ----------
+    document.addEventListener("DOMContentLoaded", async () => {
+      try { if (window.isSecureContext !== false && "serviceWorker" in navigator) navigator.serviceWorker.register(APP_BASE + "sw.js").catch(() => {}); } catch (e) {}
+      // Uygulama açıkken bir bildirime dokunulursa sw.js hedef adresi buraya iletir: ilgili sekme açılır (ör. kampanya
+      // bildirimi → Kampanyalar) ve kart tazelenir. Uygulama kapalıyken sayfa zaten hedef adresle açılır (INITIAL_TAB).
+      try {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", (ev) => {
+          const d = ev.data || {};
+          if (d.type !== "notification-click" || !d.url) return;
+          try {
+            const u = new URL(d.url, window.location.href);
+            if (u.origin !== window.location.origin) return;
+            const same = u.pathname.replace(/\/$/, "") === window.location.pathname.replace(/\/$/, "");
+            if (!same) { window.location.href = u.href; return; }
+            const tab = u.searchParams.get("tab");
+            if (tab && VALID_TABS.includes(tab)) switchTab(tab);
+            pollInAppNotifications();
+          } catch (e) {}
+        });
+      } catch (e) {}
+      syncNotificationStatusUI();   // ilk boyamada gerçek tarayıcı izni: açıkken asla "kapalı" görünmez
+      applyGlobalNumbers();
+      applyIdentityUI();
+      if (appState.identified && appState.customer) updateCustomerUI(appState.customer, false);
+      renderCampaigns(appState.campaigns);
+
+      const isIdentified = await loadHomeData(false);
+
+      const startTab = VALID_TABS.includes(INITIAL_TAB) ? INITIAL_TAB : "home";
+      switchTab(startTab);
+
+      // Bu okutmanın tek kullanımlık açılışı (sabit QR / NFC → /m/qr, ya da kasa ekranının canlı kodu → /d/{kod}):
+      // kayıtlıysa damga hemen işlenir ve adres /kart/ olur (yenileme / geri dönme / paylaşma yeni damga vermez);
+      // değilse açılış bu telefona ayrılır ve numara girilince damga eklenir (ADR-29).
+      // NTAG 424 DNA dokunuşunda (ADR-30) gömülü değer imzalı adresin kendisidir ("/n?p=…&c=…"); olduğu gibi gönderilir.
+      if (appState.pendingClaimToken) await submitClaimToken(ENTRY === "nfc" ? appState.pendingClaimToken : "/d/" + appState.pendingClaimToken);
+      else if (ENTRY === "register") {
+        // ADR-30: basılı QR'ın damgası kapalı — bu QR kayıt + uygulama içindir
+        clearClaimFromUrl();
+        if (isIdentified) showToast(STATIC_QR_REGISTER_TEXT, "warning");
+      } else if (ENTRY === "stale") {
+        // ADR-41: eski / geçersiz Damga QR adresi — damga yok
+        clearClaimFromUrl();
+        showToast(STALE_QR_TEXT, "warning");
+      } else if (ENTRY === "kayit") {
+        // ADR-35: Kayıt / Uygulama QR'ı (/m/kayit) — her zaman yalnızca kayıt; kayıtlıya kısa bilgi, kayıtsıza kayıt ekranı
+        clearClaimFromUrl();
+        if (isIdentified) showToast(KAYIT_QR_TEXT, "warning");
+      }
+
+      if (isIdentified && isStandalone()) claimInstallBonus();
+      if (INITIAL_STAFF_TOKEN && isIdentified) await checkStaffRedeemFlow(INITIAL_STAFF_TOKEN);
+      await vapidPublicKey().catch(() => null);
+      updatePushUI();
+      maybeSyncPushState();          // arka planda: izin 'granted' ise hediye damga (hak varsa) + abonelik onarımı
+      watchNotificationPermission();
+      try { renderHelp(); } catch (e) {}
+      nudgeNotifAfterInstall();
+      // Site içi anlık bildirim izleyicisi (yalnızca üye + uygulama ekrandayken çalışır)
+      setInterval(pollInAppNotifications, IN_APP_POLL_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) return;
+        updatePushUI();              // izin bu arada tarayıcıdan değiştiyse gösterge hemen düzelir
+        maybeSyncPushState();
+        pollInAppNotifications();
+      });
+    });
+  </script>
+</body>
+</html>

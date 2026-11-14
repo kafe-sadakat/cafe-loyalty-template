@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  {% set panel_title = business_name ~ " — Panel Girişi" %}
+  {%- from "_panel_nav_icons.html" import navicon -%}
+  {% include "_panel_head.html" %}
+</head>
+<body class="bg-surface font-body-md text-on-surface antialiased">
+  <main class="min-h-screen flex items-center justify-center px-6 py-10 relative">
+    <button type="button" data-theme-toggle onclick="toggleTheme()" class="absolute top-4 right-4 w-9 h-9 rounded-md bg-surface-container hover:bg-surface-container-high text-on-surface-variant flex items-center justify-center transition-colors" aria-label="Tema değiştir">
+      <span data-theme-ico-swap class="inline-flex items-center justify-center">
+        <span data-ico-sun class="hidden inline-flex">{{ navicon("sun", "w-4 h-4") }}</span>
+        <span data-ico-moon class="inline-flex">{{ navicon("moon", "w-4 h-4") }}</span>
+      </span>
+    </button>
+
+    <div class="w-full max-w-sm">
+      <div class="bb-card bg-surface-container-lowest rounded-xl p-space-xl">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-[6px] bg-primary text-on-primary flex items-center justify-center shadow-sm shrink-0">
+            <span class="font-headline-sm text-headline-sm">{{ (business_name or 'B')[:1] | upper }}</span>
+          </div>
+          <div class="flex flex-col overflow-hidden">
+            <h1 class="text-[15px] leading-none font-bold text-on-surface truncate font-body-md">{{ business_name }}</h1>
+            <span class="text-[12px] leading-none text-outline mt-1">Panel Girişi</span>
+          </div>
+        </div>
+
+        <form id="login-form" class="mt-space-lg flex flex-col gap-space-md">
+          <div>
+            <label class="bb-label" for="lg-user">Kullanıcı Adı</label>
+            <input id="lg-user" class="bb-input" maxlength="40" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+          </div>
+          <div>
+            <label class="bb-label" for="lg-pass">Şifre</label>
+            <input id="lg-pass" class="bb-input" type="password" autocomplete="current-password" required />
+          </div>
+
+          <!-- ADR-42: bu cihazda 30 gün açık kalır (panel açıldıkça uzar); ortak cihazda işaret kaldırılır -->
+          <label for="lg-remember" class="flex items-center gap-2 font-body-sm text-body-sm text-on-surface" style="cursor:pointer;user-select:none">
+            <input id="lg-remember" type="checkbox" checked style="width:18px;height:18px;accent-color:#164e3f;flex-shrink:0" />
+            <span>Bu cihazda oturumum açık kalsın</span>
+          </label>
+
+          <p id="lg-err" class="hidden font-body-sm text-body-sm text-error font-semibold" role="alert"></p>
+
+          <button id="lg-btn" type="submit" class="bb-btn-primary" style="height:2.75rem;font-size:14px">
+            {{ navicon("log-in", "w-4 h-4") }}
+            <span>Giriş Yap</span>
+          </button>
+          <!-- ADR-43: bu panel uygulama olarak yüklenebilir (yalnızca yüklenebilirken görünür) -->
+          <button type="button" data-pwa-install onclick="panelInstall()" style="display:none;height:2.5rem;font-size:13px"
+            class="w-full rounded-lg inline-flex items-center justify-center gap-2 border border-outline-variant text-on-surface hover:bg-surface-container transition-colors font-label-md">
+            {{ navicon("smartphone", "w-4 h-4") }}<span>{{ pwa_app_name or 'Panel' }} uygulamasını yükle</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="{{ rel_base }}static/js/panel.js?v={{ asset_v }}"></script>
+  <script>
+    const REL = {{ rel_base | tojson }};
+
+    // Hesap, eski sürümün kaynak kodunda yazılı (herkesçe bilinen) parolayı kullanıyor: müdür devam etmeden yeni parola
+    // belirler; personel müdüre haber vermesi için uyarılır. (Yalnızca sabit metin; dışarıdan gelen değer HTML'e girmez.)
+    function weakPasswordGate(role, currentPassword) {
+      return new Promise((resolve) => {
+        const wrap = document.createElement("div");
+        wrap.className = "fixed inset-0 bg-black/50 flex items-center justify-center p-5";
+        wrap.style.zIndex = "300";
+        if (role !== "manager") {
+          wrap.innerHTML =
+            '<div class="bg-surface rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">' +
+            '<p class="text-sm text-on-surface font-semibold">⚠️ Bu hesap herkesçe bilinen eski varsayılan parolayı kullanıyor.</p>' +
+            '<p class="text-sm text-on-surface-variant">Müdür, Personel sekmesinden bu hesabın parolasını hemen değiştirmelidir.</p>' +
+            '<div class="flex justify-end"><button type="button" class="pn-btn">Anladım</button></div></div>';
+          wrap.querySelector("button").addEventListener("click", () => { wrap.remove(); resolve(); });
+          document.body.appendChild(wrap);
+          return;
+        }
+        wrap.innerHTML =
+          '<form class="bg-surface rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-3">' +
+          '<p class="text-sm text-on-surface font-semibold">⚠️ Güvenliğiniz için yeni parola belirleyin</p>' +
+          '<p class="text-sm text-on-surface-variant">Bu hesap herkesçe bilinen eski varsayılan parolayı kullanıyor. Devam etmek için en az 8 karakterlik yeni bir parola belirleyin.</p>' +
+          '<input class="bb-input" type="password" name="np1" autocomplete="new-password" placeholder="Yeni parola" minlength="8" required />' +
+          '<input class="bb-input" type="password" name="np2" autocomplete="new-password" placeholder="Yeni parola (tekrar)" minlength="8" required />' +
+          '<p class="hidden text-sm text-error font-semibold" role="alert"></p>' +
+          '<div class="flex justify-end"><button type="submit" class="pn-btn">Parolayı Değiştir ve Devam Et</button></div></form>';
+        const form = wrap.querySelector("form");
+        const msg = wrap.querySelector('[role="alert"]');
+        const fail = (t) => { msg.textContent = t; msg.classList.remove("hidden"); };
+        form.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const np1 = form.elements.np1.value, np2 = form.elements.np2.value;
+          if (np1 !== np2) { fail("Yeni parolalar aynı değil."); return; }
+          const r = await api("api/admin/account", { method: "POST", body: { current_password: currentPassword, new_password: np1 } });
+          if (r.status === "success") { wrap.remove(); resolve(); } else { fail(r.message || "Parola değiştirilemedi."); }
+        });
+        document.body.appendChild(wrap);
+        form.elements.np1.focus();
+      });
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("lg-err");
+      const btn = document.getElementById("lg-btn");
+      err.classList.add("hidden");
+      btn.disabled = true;
+      const password = document.getElementById("lg-pass").value;
+      const res = await api("panel/login", {
+        method: "POST",
+        body: { username: document.getElementById("lg-user").value.trim(), password: password, remember: document.getElementById("lg-remember").checked }
+      });
+      btn.disabled = false;
+      // Rol sunucudan gelir: müdür → /mudur, personel → /personel (302 yok; sayfa yeniden yüklenir)
+      if (res.status === "success") {
+        location.href = (window.APP_BASE || REL) + (res.redirect || "mudur");
+        return;
+      }
+      err.textContent = res.message || "Giriş yapılamadı.";
+      err.classList.remove("hidden");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="{{ accent_color }}" />
+  <title>{{ business_name }} · QR Ekranı</title>
+  {# ADR-30: Kasa QR Ekranı. Bağımsız sayfa: derlenmiş Tailwind'e bağlı değil, tüm stil burada. #}
+  <style>
+    :root { --accent: {{ accent_color }}; --bg: #FCF9F8; --card: #FFFFFF; --ink: #1C1B1B; --muted: #5F5E5E; --ok: #2E7D5B; --warn: #B26A00; --err: #C62828; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body { background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; -webkit-user-select: none; user-select: none; }
+    .wrap { width: 100%; max-width: 820px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+    .brand { font-size: clamp(18px, 3.2vw, 28px); font-weight: 700; color: var(--accent); letter-spacing: .02em; }
+    h1 { margin: 0; font-size: clamp(22px, 4.4vw, 40px); line-height: 1.15; }
+    .sub { margin: 0; color: var(--muted); font-size: clamp(14px, 2.3vw, 20px); line-height: 1.4; }
+    .qr-box { background: var(--card); border-radius: 24px; padding: clamp(8px, 1.6vw, 16px); border: 3px solid var(--accent); box-shadow: 0 10px 30px rgba(0, 0, 0, .08); }
+    #qr { display: block; width: min(54vh, 84vw); height: min(54vh, 84vw); image-rendering: pixelated; background: var(--bg); border-radius: 12px; }
+    .bar { width: min(54vh, 84vw); height: 6px; background: rgba(0, 0, 0, .08); border-radius: 99px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .5s linear; }
+    #state { margin: 0; min-height: 1.4em; font-size: clamp(16px, 2.8vw, 26px); font-weight: 700; }
+    .hint { margin: 0; font-size: 13px; color: var(--muted); }
+    .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
+    #flash { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(46, 125, 91, .95); color: #FFF; font-size: clamp(28px, 6vw, 60px); font-weight: 800; text-align: center; z-index: 10; }
+    #flash.warn-bg { background: rgba(178, 106, 0, .95); }
+    .card { background: var(--card); border-radius: 20px; padding: 28px 24px; max-width: 540px; width: 100%; box-shadow: 0 10px 30px rgba(0, 0, 0, .08); display: flex; flex-direction: column; gap: 14px; text-align: center; }
+    .card h1 { font-size: clamp(20px, 4vw, 28px); }
+    .card p { margin: 0; line-height: 1.5; }
+    button.big { appearance: none; border: 0; border-radius: 14px; background: var(--accent); color: #FFF; font-size: 18px; font-weight: 700; padding: 14px 22px; cursor: pointer; }
+    button.big:disabled { opacity: .6; cursor: wait; }
+  </style>
+</head>
+<body>
+{% if mode == "display" %}
+  <div class="wrap" id="screen">
+    <div class="brand">{{ business_name }}</div>
+    <h1>Damganı almak için QR'ı okut</h1>
+    <p class="sub">Telefonunun kamerasını QR'a tut. Her okutuşta yeni kod gelir.</p>
+    <div class="qr-box"><img id="qr" alt="Damga QR kodu" src="" /></div>
+    <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+    <p id="state" aria-live="polite">Kod hazırlanıyor…</p>
+    <p class="hint">{{ label }} · Tam ekran için ekrana bir kez dokunun.</p>
+  </div>
+  <div id="flash" role="status" aria-live="assertive"></div>
+  <script>
+    (function () {
+      const APP_BASE = (location.pathname === "/k" || location.pathname.startsWith("/k/")) ? "/k/" : "/";
+      const POLL_MS = 2000;
+      const IDLE = "Okut, +1 damga kartına eklensin.";
+      let code = null, held = [], rotateAt = 0, rotateMs = 60000, busy = false, stopped = false, msgTimer = null, flashTimer = null;
+      const $ = (id) => document.getElementById(id);
+
+      function setState(text, kind, holdMs) {
+        const el = $("state");
+        if (!el) return;
+        el.textContent = text;
+        el.className = kind || "";
+        clearTimeout(msgTimer);
+        if (holdMs) msgTimer = setTimeout(() => setState(IDLE, ""), holdMs);
+      }
+      function flash(text, warn) {
+        const el = $("flash");
+        el.textContent = text;
+        el.className = warn ? "warn-bg" : "";
+        el.style.display = "flex";
+        clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => { el.style.display = "none"; }, 2500);
+      }
+      function showUnpaired() {
+        stopped = true;
+        $("screen").innerHTML = '<div class="card"><h1>Ekran bağlantısı kesildi</h1><p class="sub">Bu ekran kaldırıldı ya da başka bir cihaz eşleştirildi. Müdür paneli → QR Kodlar → QR Ekranı bölümünden yeniden eşleştirin.</p></div>';
+      }
+      async function call(path, opts) {
+        const res = await fetch(APP_BASE + path, Object.assign({ credentials: "same-origin", cache: "no-store" }, opts || {}));
+        if (res.status === 401) { showUnpaired(); throw new Error("unpaired"); }
+        return res.json();
+      }
+      async function newCode() {
+        if (busy || stopped) return;
+        busy = true;
+        try {
+          const res = await call("api/ekran/stamp-code", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ replaces: code ? code.id : null })
+          });
+          if (res.status !== "success") {
+            setState(res.message || "Kod alınamadı; tekrar deneniyor…", "err");
+            rotateAt = Date.now() + 5000;
+            return;
+          }
+          code = res;
+          $("qr").src = res.qr;
+          rotateMs = (res.rotate_after || 60) * 1000;
+          rotateAt = Date.now() + rotateMs;
+        } catch (e) {
+          if (!stopped) { setState("Bağlantı yok; tekrar deneniyor…", "err"); rotateAt = Date.now() + 5000; }
+        } finally {
+          busy = false;
+        }
+      }
+      function announce(c) {
+        if (c.result === "limit") { setState("Bugünkü damga limiti dolu; damga eklenmedi.", "warn", 6000); flash("Bugünkü damga limitin dolu", true); }
+        else if (c.result === "cooldown") { setState("Bu ziyaretin damgası zaten eklendi.", "warn", 6000); flash("Bu ziyaretin damgası zaten eklendi ✓", true); }
+        else if (c.result === "welcome_locked") { setState("Hesap açıldı; kayıt damgası verilmedi.", "warn", 6000); flash("Hesabın açıldı", true); }
+        else { setState("✓ +1 damga eklendi. Sıradaki müşteri okutabilir.", "ok", 6000); flash("✓ Damgan eklendi!"); }
+      }
+      async function poll() {
+        if (busy || stopped) return;
+        if (!code || Date.now() >= rotateAt) { await newCode(); return; }
+        const ids = [code.id].concat(held).slice(0, 5);
+        let res;
+        try { res = await call("api/ekran/stamp-code/status?ids=" + ids.join(",")); } catch (e) { return; }
+        if (res.status !== "success" || !code) return;
+        let rotate = false;
+        (res.codes || []).forEach((c) => {
+          const current = c.id === code.id;
+          if (c.status !== "success" || c.state === "expired") {
+            held = held.filter((x) => x !== c.id);
+            if (current) rotate = true;
+          } else if (c.state === "used") {
+            held = held.filter((x) => x !== c.id);
+            announce(c);
+            if (current) rotate = true;
+          } else if (c.state === "held" && current) {
+            held.push(c.id);
+            setState("⏳ Bir müşteri kayıt oluyor; sıradaki müşteri için yeni kod gösteriliyor.", "warn", 5000);
+            rotate = true;
+          }
+        });
+        if (rotate) await newCode();
+      }
+      function tick() {
+        const bar = $("bar");
+        if (!bar) return;
+        const left = Math.max(0, rotateAt - Date.now());
+        bar.style.width = (code ? Math.min(100, (left / rotateMs) * 100) : 0) + "%";
+      }
+      // Ekran kararmasın (Screen Wake Lock) ve tek dokunuşla tam ekran olsun
+      async function keepAwake() {
+        try { if ("wakeLock" in navigator && document.visibilityState === "visible") await navigator.wakeLock.request("screen"); } catch (e) {}
+      }
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { keepAwake(); poll(); } });
+      document.addEventListener("click", () => {
+        try {
+          const el = document.documentElement;
+          if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+        } catch (e) {}
+        keepAwake();
+      });
+      newCode().then(() => { if (!stopped && code) setState(IDLE, ""); });
+      setInterval(poll, POLL_MS);
+      setInterval(tick, 500);
+      keepAwake();
+      // Uzun süre açık kalan ekran 6 saatte bir kendini yeniler (bellek / güncelleme)
+      setTimeout(() => location.reload(), 6 * 3600 * 1000);
+    })();
+  </script>
+{% elif mode == "pair" %}
+  <div class="card">
+    <div class="brand">{{ business_name }}</div>
+    <h1>“{{ label }}” QR ekranı</h1>
+    <p class="sub">Bu cihaz kasadaki QR ekranı olacak: her okutuşta yenilenen damga QR'ını gösterir. Cihazı müşterinin göreceği şekilde kasaya yerleştirin, şarja takılı kalsın.</p>
+    <p><button class="big" id="pair-btn" type="button">Bu Cihazı QR Ekranı Yap</button></p>
+    <p id="pair-msg" class="err" aria-live="polite"></p>
+  </div>
+  <script>
+    (function () {
+      const APP_BASE = (location.pathname === "/k" || location.pathname.startsWith("/k/")) ? "/k/" : "/";
+      const PAIR_CODE = {{ pair_code | tojson }};
+      const btn = document.getElementById("pair-btn");
+      const msg = document.getElementById("pair-msg");
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        msg.textContent = "";
+        try {
+          const res = await fetch(APP_BASE + "api/ekran/pair", {
+            method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: PAIR_CODE })
+          }).then((r) => r.json());
+          if (res.status === "success") { location.replace(APP_BASE + "ekran"); return; }
+          msg.textContent = res.message || "Eşleştirilemedi.";
+        } catch (e) {
+          msg.textContent = "Bağlantı hatası; tekrar deneyin.";
+        }
+        btn.disabled = false;
+      });
+    })();
+  </script>
+{% elif mode == "pair_invalid" %}
+  <div class="card">
+    <div class="brand">{{ business_name }}</div>
+    <h1>Eşleştirme bağlantısı geçersiz</h1>
+    <p class="sub">Bağlantı kullanılmış ya da süresi (15 dk) dolmuş. Müdür paneli → QR Kodlar → QR Ekranı bölümünden yeni bağlantı alın.</p>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="brand">{{ business_name }}</div>
+    <h1>Bu cihaz QR ekranı değil</h1>
+    <p class="sub">Kasadaki tablet ya da eski telefonu QR ekranı yapmak için: Müdür paneli → QR Kodlar → QR Ekranı → “Ekran Ekle”. Çıkan bağlantıyı bu cihazda açıp “Bu Cihazı QR Ekranı Yap”a dokunun.</p>
+  </div>
+{% endif %}
+</body>
+</html>

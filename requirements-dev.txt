@@ -1,0 +1,4 @@
+# Geliştirme / test bağımlılıkları (üretim imajına girmez): pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0.0
+pip-audit>=2.7.0           # SB-06: bilinen açık taraması (elle: pip-audit -r requirements.txt)

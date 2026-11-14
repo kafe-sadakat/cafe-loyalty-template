@@ -1,0 +1,32 @@
+{#
+  Ortak panel <head> bölümü (müdür / kasiyer / giriş).
+  Kullanım: {%- set panel_title = "..." %} sonrası {% include "_panel_head.html" %}
+  data-panel="1" özniteliği panel tasarım katmanını
+  (tools/panel_extensions.css → app.css) yalnızca panellere bağlar.
+#}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="theme-color" content="#FAF9F7" />
+<title>{{ panel_title | default(business_name) }}</title>
+<link rel="icon" type="image/png" href="{{ rel_base }}static/img/icon-192.png" />
+{% if pwa_app %}
+{# ADR-43: Yönetim / Kasa paneli uygulama olarak yüklenebilir (müşteri kartından ayrı uygulama) #}
+<link rel="manifest" href="{{ rel_base }}{{ pwa_app }}.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="{{ pwa_app_name }}" />
+<link rel="apple-touch-icon" href="{{ rel_base }}{{ pwa_icon }}" />
+<script>window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); window.__panelInstallEvt = e; try { window.dispatchEvent(new Event("panel-installable")); } catch (err) {} });</script>
+{% endif %}
+<link rel="stylesheet" href="{{ rel_base }}static/css/fonts.css" />
+<link rel="stylesheet" href="{{ rel_base }}static/css/app.css?v={{ asset_v }}" />
+<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("bb-theme") === "dark" ? "dark" : "soft"); } catch (e) {} try { document.documentElement.setAttribute("data-panel", "1"); } catch (e) {}</script>
+<style>
+  @layer base {
+    html, body { margin: 0; padding: 0; }
+    body { overscroll-behavior: none; }
+  }
+  ::-webkit-scrollbar { display: none; }
+</style>

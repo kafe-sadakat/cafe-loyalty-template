@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Renk paletleri (RGB üçlüleri) ===== */
+/* Müşteri uygulaması: orijinal palet */
+:root {
+  --c-primary: 0 54 41; --c-primary-container: 30 77 63; --c-on-primary: 255 255 255; --c-on-primary-container: 142 191 176;
+  --c-secondary: 82 102 0; --c-secondary-container: 210 238 119; --c-on-secondary-container: 88 109 0;
+  --c-tertiary: 64 43 0; --c-tertiary-container: 255 222 169;
+  --c-surface: 252 249 248; --c-surface-low: 246 243 242; --c-surface-container: 240 237 237;
+  --c-surface-high: 234 231 231; --c-surface-highest: 229 226 225;
+  --c-on-surface: 28 27 27; --c-on-surface-variant: 64 73 69; --c-outline: 112 121 117; --c-outline-variant: 191 200 196;
+  --c-error: 186 26 26; --c-error-container: 255 218 214;
+  --c-input: 255 255 255;
+  --grad-a: #003629; --grad-b: #1E4D3F; --on-grad: #ffffff;
+  /* Ek Stitch token adları (müşteri sayfalarında zemin yoktur; yalnızca
+     Tailwind sınıf adı eksikliği durumunda anlamlı bir fallback sağlamak için
+     mevcut müşteri değerlerine alias edilmiştir.) */
+  --c-surface-container-lowest: 255 255 255;
+  --c-surface-container-low: 246 243 242;
+  --c-surface-dim: 246 243 242; --c-surface-bright: 252 249 248;
+  --c-surface-variant: 229 226 225;
+  --c-background: 252 249 248; --c-on-background: 28 27 27;
+  --c-on-surface-bright: 28 27 27;
+  --c-inverse-surface: 28 27 27; --c-inverse-on-surface: 252 249 248; --c-inverse-primary: 142 191 176;
+  --c-surface-tint: 64 73 69;
+  --c-on-secondary: 255 255 255; --c-on-error: 255 255 255; --c-on-tertiary: 255 255 255;
+  --c-primary-fixed: 30 77 63; --c-primary-fixed-dim: 142 191 176; --c-on-primary-fixed: 30 77 63; --c-on-primary-fixed-variant: 142 191 176;
+  --c-secondary-fixed: 210 238 119; --c-secondary-fixed-dim: 210 238 119; --c-on-secondary-fixed: 88 109 0; --c-on-secondary-fixed-variant: 88 109 0;
+  --c-tertiary-fixed: 255 222 169; --c-tertiary-fixed-dim: 255 222 169; --c-on-tertiary-fixed: 64 43 0; --c-on-tertiary-fixed-variant: 64 43 0;
+}
+/* Yönetim panelleri: Soft Light renk paleti */
+html[data-theme="soft"] {
+  --c-primary: 0 0 0; --c-primary-container: 30 27 24; --c-on-primary: 255 255 255; --c-on-primary-container: 137 131 126;
+  --c-secondary: 119 90 25; --c-secondary-container: 254 212 136; --c-on-secondary-container: 120 90 26;
+  --c-tertiary: 115 92 0; --c-tertiary-container: 203 167 47;
+  --c-surface: 250 249 247; --c-surface-low: 244 243 241; --c-surface-container: 239 238 236;
+  --c-surface-high: 233 232 230; --c-surface-highest: 227 226 224;
+  --c-on-surface: 26 28 27; --c-on-surface-variant: 76 70 64; --c-outline: 125 118 111; --c-outline-variant: 207 197 189;
+  --c-error: 186 26 26; --c-error-container: 255 218 214;
+  --c-input: 255 255 255;
+  --c-surface-container-lowest: 255 255 255;
+  --c-surface-container-low: 244 243 241;
+  --c-surface-dim: 218 218 216; --c-surface-bright: 250 249 247;
+  --c-surface-variant: 227 226 224;
+  --c-background: 250 249 247; --c-on-background: 26 28 27;
+  --c-on-surface-bright: 26 28 27;
+  --c-inverse-surface: 47 49 48; --c-inverse-on-surface: 241 241 239; --c-inverse-primary: 204 197 192;
+  --c-surface-tint: 98 93 89;
+  --c-on-secondary: 255 255 255; --c-on-error: 255 255 255; --c-on-tertiary: 255 255 255; --c-on-tertiary-container: 78 61 0;
+  --c-primary-fixed: 233 225 220; --c-primary-fixed-dim: 204 197 192; --c-on-primary-fixed: 30 27 24; --c-on-primary-fixed-variant: 74 70 66;
+  --c-secondary-fixed: 255 222 165; --c-secondary-fixed-dim: 233 193 118; --c-on-secondary-fixed: 38 25 0; --c-on-secondary-fixed-variant: 93 66 1;
+  --c-tertiary-fixed: 255 224 136; --c-tertiary-fixed-dim: 233 195 73; --c-on-tertiary-fixed: 36 26 0; --c-on-tertiary-fixed-variant: 87 69 0;
+  --grad-a: #1A1714; --grad-b: #3A3327; --on-grad: #FAF9F7;
+  color-scheme: light;
+}
+/* Yönetim panelleri: Dark — Roasted Charcoal #12100E canvas, Deep Smoked Espresso
+   #1C1916 kartlar, #2A2622 kenarlıklar, Liquid Gold #D4AF37 vurgu (DESIGN.md) */
+html[data-theme="dark"] {
+  --c-primary: 212 175 55; --c-primary-container: 212 175 55; --c-on-primary: 26 23 20; --c-on-primary-container: 26 23 20;
+  --c-secondary: 212 175 55; --c-secondary-container: 58 51 39; --c-on-secondary-container: 233 193 118;
+  --c-tertiary: 230 200 160; --c-tertiary-container: 58 46 29;
+  --c-surface: 18 16 14; --c-surface-low: 28 25 22; --c-surface-container: 33 30 26;
+  --c-surface-high: 38 34 32; --c-surface-highest: 46 42 38;
+  --c-on-surface: 237 230 218; --c-on-surface-variant: 176 171 164; --c-outline: 140 133 126; --c-outline-variant: 74 65 55;
+  --c-error: 255 138 128; --c-error-container: 74 27 31;
+  --c-input: 28 25 22;
+  --c-surface-container-lowest: 19 17 16;
+  --c-surface-container-low: 28 25 22;
+  --c-surface-dim: 12 10 9; --c-surface-bright: 19 17 16;
+  --c-surface-variant: 33 30 26;
+  --c-background: 18 16 14; --c-on-background: 237 230 218;
+  --c-on-surface-bright: 237 230 218;
+  --c-inverse-surface: 241 234 224; --c-inverse-on-surface: 20 18 16; --c-inverse-primary: 26 23 20;
+  --c-surface-tint: 46 42 38;
+  --c-on-secondary: 26 23 20; --c-on-error: 26 23 20; --c-on-tertiary: 26 23 20; --c-on-tertiary-container: 230 200 160;
+  --c-primary-fixed: 46 40 30; --c-primary-fixed-dim: 58 51 31; --c-on-primary-fixed: 241 225 166; --c-on-primary-fixed-variant: 184 174 159;
+  --c-secondary-fixed: 58 51 39; --c-secondary-fixed-dim: 46 42 38; --c-on-secondary-fixed: 233 193 118; --c-on-secondary-fixed-variant: 233 193 118;
+  --c-tertiary-fixed: 58 46 29; --c-tertiary-fixed-dim: 46 42 38; --c-on-tertiary-fixed: 230 200 160; --c-on-tertiary-fixed-variant: 230 200 160;
+  --grad-a: #A88A24; --grad-b: #D4AF37; --on-grad: #12100E;
+  color-scheme: dark;
+}
+
+.hidden { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background-color: rgb(var(--c-surface));
+  color: rgb(var(--c-on-surface));
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  min-height: 100dvh;
+}
+.font-serif-editorial { font-family: 'Newsreader', serif; }
+.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+.material-symbols-filled { font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
+.cafe-arch { border-radius: 9999px 9999px 14px 14px; }
+.glass-nav {
+  background: rgb(var(--c-surface) / 0.90);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.emerald-pass-gradient { background: linear-gradient(145deg, var(--grad-a) 0%, var(--grad-b) 100%); }
+html[data-theme="soft"] .emerald-pass-gradient, html[data-theme="dark"] .emerald-pass-gradient { color: var(--on-grad) !important; }
+@keyframes stampPop {
+  0% { transform: scale(0.5); opacity: 0.3; }
+  60% { transform: scale(1.16); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-stamp-pop { animation: stampPop 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+#dedicated-qr-reader video { border-radius: 1rem !important; object-fit: cover !important; }
+
+/* Uygulama (PWA, standalone) / normal tarayıcı ayrımı: <html class="is-standalone"> head betiğiyle atanır */
+.so-flex { display: none !important; }
+.is-standalone .so-flex { display: flex !important; }
+.is-standalone .bo-block { display: none !important; }
+
+/* Panel yardımcıları (tema değişkenlerine bağlı) */
+.pn-card { background: rgb(var(--c-surface-low)); border: 1px solid rgb(var(--c-outline-variant) / 0.55); border-radius: 1.25rem; padding: 1.25rem; }
+.pn-input {
+  width: 100%; border-radius: 0.9rem; border: 1px solid rgb(var(--c-outline-variant) / 0.9);
+  background: rgb(var(--c-input)); padding: 0.7rem 0.9rem; font-size: 0.9rem; color: rgb(var(--c-on-surface));
+}
+.pn-input::placeholder { color: rgb(var(--c-outline) / 0.8); }
+.pn-input:focus { outline: none; border-color: rgb(var(--c-primary)); box-shadow: 0 0 0 3px rgb(var(--c-primary) / 0.18); }
+.pn-label { display: block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: rgb(var(--c-on-surface-variant)); margin-bottom: 0.3rem; }
+.pn-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  border-radius: 9999px; padding: 0.6rem 1.1rem; font-size: 0.8rem; font-weight: 700;
+  background: rgb(var(--c-primary)); color: rgb(var(--c-on-primary)); transition: opacity .15s, transform .1s;
+}
+.pn-btn:active { transform: scale(0.97); }
+.pn-btn:disabled { opacity: .5; }
+.pn-btn-ghost { background: rgb(var(--c-surface-container)); color: rgb(var(--c-primary)); }
+.pn-btn-danger { background: rgb(var(--c-error-container)); color: rgb(var(--c-error)); }
+.pn-btn-lime { background: rgb(var(--c-secondary-container)); color: rgb(var(--c-on-secondary-container)); }
+.pn-table { width: 100%; font-size: 0.8rem; border-collapse: collapse; }
+.pn-table th { text-align: left; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .06em; color: rgb(var(--c-on-surface-variant)); padding: .5rem .6rem; border-bottom: 1px solid rgb(var(--c-outline-variant)); white-space: nowrap; }
+.pn-table td { padding: .55rem .6rem; border-bottom: 1px solid rgb(var(--c-outline-variant) / 0.45); vertical-align: top; }
+.pn-chip { display: inline-block; border-radius: 9999px; padding: .1rem .55rem; font-size: .65rem; font-weight: 700; background: rgb(var(--c-surface-highest)); color: rgb(var(--c-on-surface-variant)); }
+.pn-chip-ok { background: rgb(var(--c-secondary-container)); color: rgb(var(--c-on-secondary-container)); }
+.pn-chip-bad { background: rgb(var(--c-error-container)); color: rgb(var(--c-error)); }
+.pn-chip-warn { background: rgb(var(--c-tertiary-container)); color: rgb(var(--c-tertiary)); }
+
+/* Ürün etiketleri (müşteri menüsü + müdür paneli) */
+.tag-new { background: linear-gradient(145deg, #C9A66B, #E3C58A); color: #3a2a08; }
+.tag-sale { background: #b3261e; color: #fff; }
+
+/* Tema geçiş düğmesi */
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 9999px; background: rgb(var(--c-surface-container)); color: rgb(var(--c-primary)); }

@@ -1,0 +1,536 @@
+/* ==========================================================================
+   Yönetim Panelleri — Tasarım Katmanı (panel uzantıları)
+   Bu dosya build_css.py tarafından Tailwind çıktısının SONUNA eklenir.
+
+   ÖNEMLİ: Tüm kurallar `html[data-panel]` kapsamındadır — böylece kafe müşteri
+   uygulaması (PWA, data-panel'siz) hiçbir şekilde etkilenmez.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ *
+ * 1. Renk değişkenleri — Tailwind RGB üçlüleri (tailwind.input.css) ile
+ *    AYNI değerlerdir; burada yalnızca Stitch sınıf adları için ham hex
+ *    versiyonları bulunur (bg- ve text- yardımcı sınıfları bunları okur).
+ * ------------------------------------------------------------------ */
+html[data-panel][data-theme="soft"] {
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f4f3f1;
+  --surface-container: #efeeec;
+  --surface-container-high: #e9e8e6;
+  --surface-container-highest: #e3e2e0;
+  --primary-container: #1e1b18;
+  --on-primary-container: #89837e;
+  --secondary: #775a19;
+  --on-secondary: #ffffff;
+  --secondary-container: #fed488;
+  --on-secondary-container: #785a1a;
+  --secondary-fixed: #ffdea5;
+  --secondary-fixed-dim: #e9c176;
+  --on-secondary-fixed: #261900;
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --on-error-container: #93000a;
+  --on-surface-variant: #4c4640;
+  --outline: #7d766f;
+  --outline-variant: #cfc5bd;
+  --surface-bright: #faf9f7;
+  --accent-brass: #c5a059; /* DESIGN.md "Muted Brass" hover vurgusu */
+}
+
+html[data-panel][data-theme="dark"] {
+  --surface-container-lowest: #131110;
+  --surface-container-low: #1c1916;
+  --surface-container: #211e1a;
+  --surface-container-high: #262220;
+  --surface-container-highest: #2e2a26;
+  --primary-container: #d4af37;
+  --on-primary-container: #1a1714;
+  --secondary: #d4af37;
+  --on-secondary: #1a1714;
+  --secondary-container: #3a3327;
+  --on-secondary-container: #e9c176;
+  --secondary-fixed: #3a3327;
+  --secondary-fixed-dim: #2e2a26;
+  --on-secondary-fixed: #e9c176;
+  --error: #ff8a80;
+  --error-container: #4a1b1f;
+  --on-error-container: #ffdad6;
+  --on-surface-variant: #b0aba4;
+  --outline: #8c857e;
+  --outline-variant: #4a4137;
+  --surface-bright: #131110;
+  --accent-brass: #d4af37;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Space ölçeği (Stitch spacing) — p/px/py/gap/m/pt yardımcıları
+ * ------------------------------------------------------------------ */
+html[data-panel] .px-gutter { padding-left: 1.5rem; padding-right: 1.5rem; }
+html[data-panel] .py-gutter { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+html[data-panel] .px-space-xs { padding-left: 0.25rem; padding-right: 0.25rem; }
+html[data-panel] .py-space-xs { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+html[data-panel] .px-space-sm { padding-left: 0.5rem; padding-right: 0.5rem; }
+html[data-panel] .py-space-sm { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+html[data-panel] .px-space-md { padding-left: 1rem; padding-right: 1rem; }
+html[data-panel] .py-space-md { padding-top: 1rem; padding-bottom: 1rem; }
+html[data-panel] .px-space-lg { padding-left: 1.5rem; padding-right: 1.5rem; }
+html[data-panel] .py-space-lg { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+html[data-panel] .p-space-xs { padding: 0.25rem; }
+html[data-panel] .p-space-sm { padding: 0.5rem; }
+html[data-panel] .p-space-md { padding: 1rem; }
+html[data-panel] .p-space-lg { padding: 1.5rem; }
+html[data-panel] .p-space-xl { padding: 2.5rem; }
+html[data-panel] .gap-space-xs { gap: 0.25rem; }
+html[data-panel] .gap-space-sm { gap: 0.5rem; }
+html[data-panel] .gap-space-md { gap: 1rem; }
+html[data-panel] .gap-space-lg { gap: 1.5rem; }
+html[data-panel] .gap-space-xl { gap: 2.5rem; }
+html[data-panel] .mb-space-xs { margin-bottom: 0.25rem; }
+html[data-panel] .mb-space-sm { margin-bottom: 0.5rem; }
+html[data-panel] .mb-space-md { margin-bottom: 1rem; }
+html[data-panel] .mb-space-lg { margin-bottom: 1.5rem; }
+html[data-panel] .mb-space-xl { margin-bottom: 2.5rem; }
+html[data-panel] .mt-space-xs { margin-top: 0.25rem; }
+html[data-panel] .mt-space-sm { margin-top: 0.5rem; }
+html[data-panel] .mt-space-md { margin-top: 1rem; }
+html[data-panel] .mt-space-lg { margin-top: 1.5rem; }
+html[data-panel] .mt-space-xl { margin-top: 2.5rem; }
+html[data-panel] .pt-space-xs { padding-top: 0.25rem; }
+html[data-panel] .pt-space-sm { padding-top: 0.5rem; }
+html[data-panel] .pt-space-md { padding-top: 1rem; }
+html[data-panel] .pt-space-lg { padding-top: 1.5rem; }
+html[data-panel] .pb-space-sm { padding-bottom: 0.5rem; }
+html[data-panel] .pb-space-md { padding-bottom: 1rem; }
+html[data-panel] .w-px { width: 1px; }
+html[data-panel] .h-px { height: 1px; }
+
+/* ------------------------------------------------------------------ *
+ * 3. Radii — Stitch export'ta `rounded-lg` = 4px, `rounded-xl` = 8px,
+ *    `rounded-2xl` = 12px ve `rounded-full` = 12px'tir. Tailwind
+ *    varsayılanlarına (8/12/16/9999) DOKUNMADAN panellere uygulanır.
+ * ------------------------------------------------------------------ */
+html[data-panel] .rounded-lg { border-radius: 0.25rem; }
+html[data-panel] .rounded-xl { border-radius: 0.5rem; }
+html[data-panel] .rounded-2xl { border-radius: 0.75rem; }
+html[data-panel] .rounded-full { border-radius: 0.75rem; }
+
+/* ------------------------------------------------------------------ *
+ * 4. Tipografi — EB Garamond (editorial) + Hanken Grotesk (precision)
+ * ------------------------------------------------------------------ */
+html[data-panel] body,
+html[data-panel] input,
+html[data-panel] select,
+html[data-panel] textarea,
+html[data-panel] button { font-family: 'Hanken Grotesk', sans-serif; }
+
+html[data-panel] .font-headline-sm { font-family: 'EB Garamond', serif; font-size: 20px; line-height: 26px; font-weight: 500; }
+html[data-panel] .font-headline-md { font-family: 'EB Garamond', serif; font-size: 26px; line-height: 32px; font-weight: 500; }
+html[data-panel] .font-headline-lg { font-family: 'EB Garamond', serif; font-size: 36px; line-height: 44px; font-weight: 400; }
+html[data-panel] .font-headline-xl { font-family: 'EB Garamond', serif; font-size: 48px; line-height: 56px; font-weight: 400; }
+
+html[data-panel] .font-label-sm { font-family: 'Hanken Grotesk', sans-serif; font-size: 10px; line-height: 12px; letter-spacing: 0.08em; font-weight: 600; }
+html[data-panel] .font-label-md { font-family: 'Hanken Grotesk', sans-serif; font-size: 11px; line-height: 14px; letter-spacing: 0.06em; font-weight: 600; }
+html[data-panel] .font-label-lg { font-family: 'Hanken Grotesk', sans-serif; font-size: 13px; line-height: 16px; letter-spacing: 0.04em; font-weight: 600; }
+
+html[data-panel] .font-body-sm { font-family: 'Hanken Grotesk', sans-serif; font-size: 12px; line-height: 18px; }
+html[data-panel] .font-body-md { font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; line-height: 22px; }
+html[data-panel] .font-body-lg { font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; line-height: 26px; }
+
+/* ------------------------------------------------------------------ *
+ * 5. Stitch sınıf adlarıyla birebir uyumlu yüzey yardımcıları
+ * ------------------------------------------------------------------ */
+html[data-panel] .bg-surface-container-lowest { background-color: var(--surface-container-lowest); }
+html[data-panel] .bg-surface-container-low { background-color: var(--surface-container-low); }
+html[data-panel] .bg-surface-container { background-color: var(--surface-container); }
+html[data-panel] .bg-surface-container-high { background-color: var(--surface-container-high); }
+html[data-panel] .bg-surface-container-highest { background-color: var(--surface-container-highest); }
+html[data-panel] .bg-surface-bright { background-color: var(--surface-bright); }
+html[data-panel] .text-surface-bright { color: var(--surface-bright); }
+html[data-panel] .bg-primary-container { background-color: var(--primary-container); }
+html[data-panel] .text-on-primary-container { color: var(--on-primary-container); }
+html[data-panel] .bg-secondary { background-color: var(--secondary); }
+html[data-panel] .text-secondary { color: var(--secondary); }
+html[data-panel] .bg-secondary-container { background-color: var(--secondary-container); }
+html[data-panel] .text-on-secondary-container { color: var(--on-secondary-container); }
+html[data-panel] .bg-secondary-fixed { background-color: var(--secondary-fixed); }
+html[data-panel] .bg-secondary-fixed-dim { background-color: var(--secondary-fixed-dim); }
+html[data-panel] .text-secondary-fixed { color: var(--secondary-fixed); }
+html[data-panel] .text-on-secondary-fixed { color: var(--on-secondary-fixed); }
+html[data-panel] .text-error { color: var(--error); }
+html[data-panel] .bg-error-container { background-color: var(--error-container); }
+html[data-panel] .text-on-error-container { color: var(--on-error-container); }
+html[data-panel] .text-on-surface-variant { color: var(--on-surface-variant); }
+html[data-panel] .text-outline { color: var(--outline); }
+html[data-panel] .text-outline-variant { color: var(--outline-variant); }
+html[data-panel] .border-outline { border-color: var(--outline); }
+html[data-panel] .border-outline-variant { border-color: var(--outline-variant); }
+
+/* DESIGN.md: hover durumları gölge büyütmek yerine pirinç kenarlığa döner (200ms) */
+html[data-panel] .bb-focus-border:focus {
+  outline: none;
+  border-color: var(--accent-brass) !important;
+  box-shadow: 0 0 0 2px rgb(197 160 89 / 0.15);
+}
+
+/* DESIGN.md: modallar/flyout için espresso-tinted ambient veil */
+html[data-panel] .bb-shadow-ambient {
+  box-shadow: 0 12px 36px -8px rgba(26, 23, 20, 0.05), 0 4px 12px -2px rgba(26, 23, 20, 0.025);
+}
+
+/* Stitch: yatay taç (tab şeridi) kaydırmasında scrollbar yok */
+html[data-panel] .scrollbar-none::-webkit-scrollbar { display: none; }
+html[data-panel] .scrollbar-none { scrollbar-width: none; }
+
+/* POS damga yuvaları (kasiyer paneli) — yumuşak ölçek geçişi */
+html[data-panel] .bb-stamp-slot { transition: transform .2s cubic-bezier(.4, 0, .2, 1); }
+html[data-panel] .bb-stamp-slot.filled { transform: scale(1.02); }
+
+/* html5-qrcode kamera bölgesi: Joi panelleriyle uyumlu sade görünüm */
+html[data-panel] #bb-scanner-region video { border-radius: 0.75rem !important; object-fit: cover !important; width: 100% !important; }
+html[data-panel] #bb-scanner-region img { display: none !important; }
+html[data-panel] #bb-scanner-region button,
+html[data-panel] #bb-scanner-region select,
+html[data-panel] #bb-scanner-region .qrbox-beacon-highlight { filter: grayscale(1); }
+
+/* ------------------------------------------------------------------ *
+ * 6. Kasa fişi — yalnızca #bb-receipt bloğu yazdırılır (Gerçek fiş)
+ * ------------------------------------------------------------------ */
+#bb-receipt { display: none; }
+/* ------------------------------------------------------------------ *
+ * 7. lucide/shadcn kenar çubuğu kabuğu (/k/mudur + giriş ekranı)
+ *    — durum sınıfları Tailwind sınıf değişimi yerine buradan yönetilir
+ * ------------------------------------------------------------------ */
+html[data-panel] .side-slot {
+  width: 260px;
+  flex: none;
+  overflow: hidden;
+  transition: width 0.3s ease, opacity 0.3s ease, border-color 0.3s ease;
+}
+html.mudur-side-hidden .side-slot { width: 0; opacity: 0; border-color: transparent; }
+html[data-panel] .side-link { text-align: left; user-select: none; }
+html[data-panel] .side-link-active {
+  background: rgb(var(--c-surface-container-high));
+  color: rgb(var(--c-on-surface));
+  font-weight: 500;
+}
+html[data-panel] .side-link-inactive {
+  background: transparent;
+  color: rgb(var(--c-on-surface-variant));
+}
+html[data-panel] .side-link-inactive:hover,
+html[data-panel] .side-link-inactive:focus-visible {
+  background: rgb(var(--c-surface-container));
+  color: rgb(var(--c-on-surface));
+}
+html[data-panel] .side-ico { color: rgb(var(--c-outline)); transition: color 0.2s; }
+html[data-panel] .side-link-active .side-ico,
+html[data-panel] .side-link-inactive:hover .side-ico { color: rgb(var(--c-on-surface)); }
+html[data-panel] .side-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  font-size: 10px; font-weight: 500; line-height: 1;
+  border-radius: 9999px;
+  background: rgb(var(--c-primary) / 0.10);
+  color: rgb(var(--c-primary));
+}
+html[data-panel] .kbd-lucide {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 20px; padding: 0 6px;
+  font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: rgb(var(--c-outline));
+  background: rgb(var(--c-surface) / 0.5);
+  border: 1px solid rgb(var(--c-outline-variant) / 0.6);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+html[data-panel] .kbd-lucide-hover { display: none; }
+html[data-panel] .side-link:hover .kbd-lucide-hover,
+html[data-panel] .side-link:focus-visible .kbd-lucide-hover { display: inline-flex; }
+
+@media print {
+  html[data-panel] body * { visibility: hidden !important; }
+  #bb-receipt {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    color: #111;
+    padding: 12mm;
+    font-family: 'Hanken Grotesk', sans-serif;
+    font-size: 13px;
+  }
+  #bb-receipt h1 { font-family: 'EB Garamond', serif; font-size: 20px; margin: 0 0 4px; }
+  #bb-receipt hr { border: none; border-top: 1px dashed #555; margin: 8px 0; }
+}
+
+/* ------------------------------------------------------------------ *
+ * 8. Yönetim Panelleri — YÜKSEK KONTRAST katmanı (ADR-13)
+ *    Keskin 1px sınırlar, belirgin aktif sekme, net çerçeveli buton/girdi.
+ *    Yarı saydam (/50, /10 …) görsel sınıflar panellerde kullanılmaz.
+ * ------------------------------------------------------------------ */
+html[data-panel][data-theme="soft"] {
+  --bb-border: #D6D1C7;
+  --bb-input-border: #8F877C;
+  --bb-active-bg: #143328;
+  --bb-gold: #D4AF37;
+  --bb-ok: #15803D;
+  --bb-ok-hover: #166534;
+  --ch-1: #3F7D6A; --ch-2: #B8862B; --ch-3: #B5543C; --ch-4: #5B6FA8;
+}
+html[data-panel][data-theme="dark"] {
+  --bb-border: #332E2A;
+  --bb-input-border: #6B6258;
+  --bb-active-bg: #143328;
+  --bb-gold: #D4AF37;
+  --bb-ok: #22C55E;
+  --bb-ok-hover: #16A34A;
+  --ch-1: #6FB59E; --ch-2: #D4AF37; --ch-3: #E08A6F; --ch-4: #8FA3D9;
+}
+
+/* Kartlar: net 1px sınır (kart sınıfı olan her yerde) */
+html[data-panel] .bb-card,
+html[data-panel] .bg-surface-container-lowest.rounded-xl,
+html[data-panel] .bg-surface-container-lowest.rounded-2xl {
+  border: 1px solid var(--bb-border);
+  box-shadow: none;
+}
+html[data-panel] [class*="border-outline-variant"] { border-color: var(--bb-border) !important; }
+
+/* Girdiler: yüksek kontrastlı çerçeve */
+html[data-panel] .bb-input,
+html[data-panel] main input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not(.bg-transparent),
+html[data-panel] main select,
+html[data-panel] main textarea {
+  border: 1px solid var(--bb-input-border);
+  background-color: rgb(var(--c-surface-container-lowest));
+  color: rgb(var(--c-on-surface));
+  border-radius: 6px;
+}
+html[data-panel] .bb-input { width: 100%; padding: 0.55rem 0.75rem; font-size: 14px; }
+html[data-panel] .bb-input:focus,
+html[data-panel] main input:not(.bg-transparent):focus, html[data-panel] main select:focus, html[data-panel] main textarea:focus {
+  outline: none; border-color: var(--bb-gold); box-shadow: 0 0 0 2px rgb(212 175 55 / 0.35);
+}
+html[data-panel] .bb-label {
+  display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: rgb(var(--c-on-surface-variant)); margin-bottom: 4px;
+}
+
+/* Butonlar: ilk bakışta tıklanabilir */
+html[data-panel] .bb-btn,
+html[data-panel] button.bg-surface-container,
+html[data-panel] button.bg-surface-container-high,
+html[data-panel] button.bg-surface-container-low,
+html[data-panel] a.bg-surface-container {
+  border: 1px solid var(--bb-input-border);
+  color: rgb(var(--c-on-surface));
+  font-weight: 600;
+}
+html[data-panel] .bb-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0.5rem 0.9rem; border-radius: 6px; font-size: 13px;
+  background: rgb(var(--c-surface-container-lowest)); cursor: pointer; transition: border-color .15s, background .15s;
+}
+html[data-panel] .bb-btn:hover { border-color: var(--bb-gold); background: rgb(var(--c-surface-container)); }
+html[data-panel] .bb-btn-primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0.55rem 1rem; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer;
+  background: var(--bb-active-bg); color: #fff; border: 1px solid var(--bb-active-bg);
+}
+html[data-panel] .bb-btn-primary:hover { background: #0F261D; border-color: var(--bb-gold); }
+html[data-panel] .bb-btn-ok {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0.65rem 1.1rem; border-radius: 8px; font-size: 14px; font-weight: 800; cursor: pointer;
+  background: var(--bb-ok); color: #fff; border: 1px solid var(--bb-ok);
+  box-shadow: 0 2px 0 rgb(0 0 0 / 0.15);
+}
+html[data-panel] .bb-btn-ok:hover { background: var(--bb-ok-hover); }
+html[data-panel] .bb-btn-ok:disabled { opacity: 0.5; cursor: not-allowed; }
+html[data-panel] .bb-btn-danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0.5rem 0.9rem; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: rgb(var(--c-surface-container-lowest)); color: rgb(var(--c-error)); border: 1px solid rgb(var(--c-error));
+}
+html[data-panel] .bb-btn-danger:hover { background: rgb(var(--c-error-container)); }
+html[data-panel] .bb-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  border: 1px solid var(--bb-input-border); border-radius: 6px; background: rgb(var(--c-surface-container-lowest));
+  color: rgb(var(--c-on-surface)); cursor: pointer;
+}
+html[data-panel] .bb-icon-btn:hover { border-color: var(--bb-gold); background: rgb(var(--c-surface-container)); }
+
+/* Sol menü: aktif sekme çok belirgin — koyu zümrüt zemin, beyaz yazı, 4px altın şerit */
+html[data-panel] .side-link { border-left: 4px solid transparent; border-radius: 6px; }
+html[data-panel] .side-link-active {
+  background: var(--bb-active-bg);
+  color: #FFFFFF;
+  font-weight: 700;
+  border-left-color: var(--bb-gold);
+}
+html[data-panel] .side-link-active .side-ico { color: #FFFFFF; }
+html[data-panel] .side-badge { background: rgb(var(--c-surface-container-high)); color: rgb(var(--c-on-surface)); border: 1px solid var(--bb-border); }
+html[data-panel] .side-link-active .side-badge { background: #FFFFFF; color: var(--bb-active-bg); border-color: #FFFFFF; }
+html[data-panel] .kbd-lucide { background: rgb(var(--c-surface-container-lowest)); border: 1px solid var(--bb-border); }
+
+/* Üst araç çubuğu: bölüm adı büyük ve kalın */
+html[data-panel] #crumb-title { font-size: 20px; font-weight: 700; line-height: 28px; letter-spacing: -0.01em; }
+
+/* Tıklanabilir istatistik kartları + sekme grubu */
+html[data-panel] .bb-stat { cursor: pointer; transition: border-color .15s, transform .15s; text-align: left; }
+html[data-panel] .bb-stat:hover, html[data-panel] .bb-stat:focus-visible { border-color: var(--bb-gold); transform: translateY(-1px); outline: none; }
+html[data-panel] .bb-pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px;
+  border: 1px solid var(--bb-border); background: rgb(var(--c-surface-container)); color: rgb(var(--c-on-surface));
+  font-size: 11px; font-weight: 600; cursor: pointer;
+}
+html[data-panel] .bb-pill:hover { border-color: var(--bb-gold); }
+html[data-panel] .bb-seg { display: inline-flex; border: 1px solid var(--bb-input-border); border-radius: 6px; overflow: hidden; }
+html[data-panel] .bb-seg-btn { padding: 0.45rem 0.9rem; font-size: 13px; font-weight: 600; background: rgb(var(--c-surface-container-lowest)); color: rgb(var(--c-on-surface)); cursor: pointer; }
+html[data-panel] .bb-seg-btn + .bb-seg-btn { border-left: 1px solid var(--bb-input-border); }
+html[data-panel] .bb-seg-btn.is-on { background: var(--bb-active-bg); color: #fff; }
+html[data-panel] .bb-bar-row { display: grid; grid-template-columns: 7.5rem 1fr 4.5rem; align-items: center; gap: 10px; width: 100%; padding: 4px 6px; border-radius: 6px; cursor: pointer; text-align: left; }
+html[data-panel] .bb-bar-row:hover { background: rgb(var(--c-surface-container)); }
+html[data-panel] .bb-bar-track { height: 12px; border-radius: 6px; background: rgb(var(--c-surface-container-high)); border: 1px solid var(--bb-border); overflow: hidden; }
+html[data-panel] .bb-bar-fill { height: 100%; border-radius: 5px; background: var(--ch-1); }
+html[data-panel] .bb-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 8px; border: 1px solid var(--bb-border); border-radius: 9999px; background: rgb(var(--c-surface-container-lowest)); }
+html[data-panel] .bb-legend.is-off { opacity: 0.45; text-decoration: line-through; }
+html[data-panel] .bb-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* Drill-down penceresi */
+html[data-panel] .bb-modal-back { position: fixed; inset: 0; z-index: 150; background: rgb(0 0 0 / 0.55); display: none; align-items: center; justify-content: center; padding: 1rem; }
+html[data-panel] .bb-modal-back.is-open { display: flex; }
+html[data-panel] .bb-scrim { background: rgb(0 0 0 / 0.45); }
+html[data-panel] .bb-modal { width: 100%; max-width: 52rem; max-height: 86vh; display: flex; flex-direction: column; background: rgb(var(--c-surface-container-lowest)); border: 1px solid var(--bb-border); border-radius: 10px; box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.4); }
+html[data-panel] .bb-table { width: 100%; border-collapse: collapse; }
+html[data-panel] .bb-table th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--bb-border); background: rgb(var(--c-surface-container-low)); color: rgb(var(--c-on-surface-variant)); white-space: nowrap; }
+html[data-panel] .bb-table td { padding: 9px 10px; border-bottom: 1px solid var(--bb-border); font-size: 13px; }
+html[data-panel] .bb-chip { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; border: 1px solid var(--bb-border); background: rgb(var(--c-surface-container)); color: rgb(var(--c-on-surface)); }
+html[data-panel] .bb-chip-ok { background: #DCFCE7; color: #14532D; border-color: #86EFAC; }
+html[data-panel][data-theme="dark"] .bb-chip-ok { background: #14532D; color: #DCFCE7; border-color: #166534; }
+html[data-panel] .bb-chip-warn { background: #FEF3C7; color: #78350F; border-color: #FCD34D; }
+html[data-panel][data-theme="dark"] .bb-chip-warn { background: #422006; color: #FDE68A; border-color: #854D0E; }
+html[data-panel] .bb-gift-card { border: 2px solid var(--bb-ok); background: #F0FDF4; color: #14532D; border-radius: 10px; }
+html[data-panel][data-theme="dark"] .bb-gift-card { background: #052E16; color: #DCFCE7; }
+html[data-panel] .bb-cat-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--bb-border); border-radius: 8px; background: rgb(var(--c-surface-container-lowest)); }
+
+/* Kasa: dinamik damga kutuları + şüpheli istismar rozeti */
+html[data-panel] .bb-slot {
+  display: flex; align-items: center; justify-content: center; width: 46px; height: 54px; border-radius: 8px;
+  border: 1px dashed var(--bb-input-border); font-weight: 700; font-size: 16px; color: rgb(var(--c-on-surface-variant));
+  background: rgb(var(--c-surface-container-lowest));
+}
+html[data-panel] .bb-slot.is-on { background: var(--bb-active-bg); color: #fff; border: 1px solid var(--bb-active-bg); }
+html[data-panel] .bb-fraud { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; border: 1px solid; cursor: pointer; }
+html[data-panel] .bb-fraud-yellow { background: #FEF3C7; color: #78350F; border-color: #F59E0B; }
+html[data-panel] .bb-fraud-red { background: #FEE2E2; color: #7F1D1D; border-color: #DC2626; }
+html[data-panel][data-theme="dark"] .bb-fraud-yellow { background: #422006; color: #FDE68A; border-color: #B45309; }
+html[data-panel][data-theme="dark"] .bb-fraud-red { background: #450A0A; color: #FECACA; border-color: #DC2626; }
+
+
+/* Kasa kanıt tablosu: bonus durum kutuları + kasiyer bilgi şeridi + son işlemler */
+html[data-panel] .bb-proof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 10px; }
+html[data-panel] .bb-proof { border: 2px solid; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+html[data-panel] .bb-proof-title { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+html[data-panel] .bb-proof-text { font-size: 15px; font-weight: 800; line-height: 20px; }
+html[data-panel] .bb-proof-ok { background: #DCFCE7; border-color: #16A34A; color: #14532D; }
+html[data-panel] .bb-proof-no { background: #FEE2E2; border-color: #DC2626; color: #7F1D1D; }
+html[data-panel] .bb-proof-wait { background: #F1F0EE; border-color: #A59E94; color: #4C4640; }
+html[data-panel][data-theme="dark"] .bb-proof-ok { background: #052E16; border-color: #22C55E; color: #DCFCE7; }
+html[data-panel][data-theme="dark"] .bb-proof-no { background: #450A0A; border-color: #EF4444; color: #FECACA; }
+html[data-panel][data-theme="dark"] .bb-proof-wait { background: #26221F; border-color: #6B6258; color: #D6D1C7; }
+/* Iki gosterge grubu: bonus gecmisi + canli cihaz durumu */
+html[data-panel] .bb-group { border: 1px solid var(--bb-border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+html[data-panel] .bb-pill-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+html[data-panel] .bb-pill { font-size: 11px; font-weight: 600; line-height: 16px; padding: 1px 8px; border-radius: 6px; border: 1px solid; white-space: nowrap; }
+html[data-panel] .bb-pill-ok { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+html[data-panel] .bb-pill-used { background: #FEF3C7; color: #92400E; border-color: #FCD34D; }
+html[data-panel] .bb-pill-none { background: #F5F5F4; color: #57534E; border-color: #E7E5E4; }
+html[data-panel] .bb-pill-camp { background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+html[data-panel][data-theme="dark"] .bb-pill-ok { background: #052E16; color: #6EE7B7; border-color: #047857; }
+html[data-panel][data-theme="dark"] .bb-pill-used { background: #422006; color: #FDE68A; border-color: #B45309; }
+html[data-panel][data-theme="dark"] .bb-pill-none { background: #26221F; color: #D6D1C7; border-color: #6B6258; }
+html[data-panel][data-theme="dark"] .bb-pill-camp { background: #172554; color: #93C5FD; border-color: #1D4ED8; }
+html[data-panel] .bb-note-strip { background: #FEF3C7; border: 2px solid #F59E0B; color: #78350F; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 700; line-height: 20px; }
+html[data-panel][data-theme="dark"] .bb-note-strip { background: #422006; border-color: #D97706; color: #FDE68A; }
+html[data-panel] .bb-recent-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--bb-border); }
+
+/* Musteri tablosu: her musteri iki satir. Ustte kimlik ve islemler; altta, tablo genisligini kullanan sabit sutunlu
+   durum seridi (.bb-mini-spec). Serit ilk hucreye konursa diger sutunlari ekran disina iter (yatay kaydirma). */
+html[data-panel] #customer-table-rows > tr.bb-cust-main > td {
+  vertical-align: middle;
+  padding-bottom: 6px;
+}
+html[data-panel] #customer-table-rows > tr.bb-cust-sub > td {
+  padding-top: 0;
+  padding-bottom: 12px;
+}
+html[data-panel] #customer-table-rows > tr.bb-cust-sub,
+html[data-panel] #customer-table-rows > tr:only-child {
+  border-bottom: 1px solid var(--bb-border);
+}
+/* Ust satirda yazi ortasindan kirilma olmaz; dar pencerede (1280 pikselin alti) kayit tarihi sutunu gizlenir ki
+   islem dugmeleri ekranda kalsin (tarih, musterinin islem gecmisinde de gorunur). */
+html[data-panel] #customer-table-rows .bb-fraud,
+html[data-panel] #customer-table-rows .bb-btn-ok,
+html[data-panel] #customer-table-rows .bb-btn {
+  white-space: nowrap;
+}
+@media (max-width: 1279px) {
+  html[data-panel] .bb-col-date { display: none; }
+}
+/* Iki grup (Bonuslar, Durum) yan yana; sigmazsa alt alta. Sutun genislikleri sabit oldugu icin her iki durumda da hizali. */
+html[data-panel] .bb-mini-spec {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 24px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background-color: var(--surface-container-low);
+}
+html[data-panel] .bb-mini-row {
+  display: grid;
+  grid-template-columns: 4.25rem auto;
+  align-items: center;
+  gap: 8px;
+}
+html[data-panel] .bb-mini-row.bb-mini-camp {
+  flex-basis: 100%;
+}
+html[data-panel] .bb-mini-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--outline);
+  white-space: nowrap;
+}
+html[data-panel] .bb-mini-spec .bb-pill-row {
+  display: grid;
+  grid-template-columns: repeat(3, 7.75rem);
+  gap: 6px;
+}
+html[data-panel] .bb-mini-spec .bb-mini-camp .bb-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+html[data-panel] .bb-mini-spec .bb-pill {
+  display: block;
+  height: 22px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+/* "Yok / Kapali / Normal" gibi notr durumlar soluk kalir; yesil ve sari (anlamli) durumlar goze carpar */
+html[data-panel] .bb-mini-spec .bb-pill-none {
+  background: transparent;
+  border-color: var(--bb-border);
+  font-weight: 500;
+}
+html[data-panel] .bb-mini-spec .bb-mini-camp .bb-pill {
+  max-width: 100%;
+}

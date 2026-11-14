@@ -1,0 +1,29 @@
+# Docker derleme bağlamına girmemesi gerekenler (gizli dosyalar, veri, geçmiş, belgeler, testler).
+# Dockerfile yalnızca requirements.txt ve app/ kopyalar; bu dosya bağlamın daemon'a gönderilmesini de sınırlar (F10).
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+data
+_denetim
+memory
+tests
+tools
+cloudflare_pages
+baski_a6_qr
+stitch_*
+Food-Ordering-App-master
+M1_admin
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+SSH-KEY
+deploy_bundle.tar.gz

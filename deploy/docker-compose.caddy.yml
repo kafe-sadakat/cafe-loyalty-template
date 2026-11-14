@@ -1,0 +1,12 @@
+# Caddy + harici Docker ağları kullanan VPS kurulumları için opsiyonel ek dosya.
+# Kullanım: docker compose -f docker-compose.yml -f deploy/docker-compose.caddy.yml up -d --build
+
+services:
+  sadakat:
+    networks:
+      - proxy
+      - default
+
+networks:
+  proxy:
+    external: true

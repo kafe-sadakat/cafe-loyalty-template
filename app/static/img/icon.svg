@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="coffeeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DD6B20"/>
+      <stop offset="100%" stop-color="#7B341E"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#coffeeGrad)"/>
+  <g filter="url(#shadow)" fill="#FFFFFF">
+    <!-- Modern Coffee Cup & Steam -->
+    <path d="M140 200h190v90c0 44-36 80-80 80h-30c-44 0-80-36-80-80v-90z"/>
+    <!-- Handle -->
+    <path d="M330 220h24c22 0 40 18 40 40s-18 40-40 40h-24v-80zm24 60c11 0 20-9 20-20s-9-20-20-20h-4v40h4z"/>
+    <!-- Saucer -->
+    <path d="M120 400h230c11 0 20 9 20 20s-9 20-20 20H120c-11 0-20-9-20-20s9-20 20-20z"/>
+    <!-- Steam -->
+    <path d="M185 130c-8 15 8 25 0 40" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" fill="none"/>
+    <path d="M235 115c-8 18 8 30 0 48" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" fill="none"/>
+    <path d="M285 130c-8 15 8 25 0 40" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>
