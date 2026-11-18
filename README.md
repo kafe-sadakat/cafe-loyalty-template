@@ -55,38 +55,26 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## 🌐 Üretim Ortamı Dağıtımı
+## ⚙️ Ortam Değişkenleri (`.env`)
 
-### 1. VPS + Caddy (Docker Harici Proxy Ağı & Alt Yol Desteği)
+Tüm marka, güvenlik ve uygulama adresi ayarları `.env.example` içindeki değişkenlerle yönetilir:
 
-Uygulamayı alan adınızın kökünde (`PUBLIC_BASE_PATH=`) veya `/k/*` alt yolunda (`PUBLIC_BASE_PATH=/k`) yayımlayabilirsiniz:
-
-1. `deploy/Caddyfile.example` dosyasını inceleyip Caddy yapılandırmanıza alan adınızı yazın.
-2. `.env` içinde `PUBLIC_BASE_URL=https://alanadiniz.com` ve gerekiyorsa `PUBLIC_BASE_PATH=/k` tanımlayın.
-3. Harici `proxy` ağıyla başlatın:
-   ```bash
-   docker compose -f docker-compose.yml -f deploy/docker-compose.caddy.yml up -d --build
-   ```
-4. İsteğe bağlı SSH + canlı uç doğrulaması için `.env.deploy` dosyasını doldurup `python auto_deploy.py` çalıştırın.
-
-### 2. Cloudflare Pages / Worker Kenar Vekili (Opsiyonel)
-
-Müşteri trafiğini Cloudflare üzerinden kök alan adınızdan (`https://kafeniz.com`) karşılayıp kaynak sunucunuza iletmek için `cloudflare_pages/` klasörünü kullanın:
-
-1. `cloudflare_pages/wrangler.toml.example` (Cloudflare Pages) veya `wrangler.worker.toml.example` (Worker Custom Domain) dosyasını kopyalayın.
-2. Cloudflare panosunda aşağıdaki **Environment Variables / Secrets** değerlerini girin:
-   - `UPSTREAM_ORIGIN`: Kaynak sunucu kökeni (örn. `https://sunucunuz.duckdns.org`)
-   - `UPSTREAM_PREFIX`: Sunucuda Caddy alt yolu varsa `/k`, yoksa boş
-   - `PAGES_PROJECT_HOST`: Projenizin `.pages.dev` adresi (örn. `kafem.pages.dev`)
-   - `ALLOWED_HOSTS`: Virgülle ayrılmış özel alan adlarınız (örn. `kafem.com,www.kafem.com`)
-   - `EDGE_SHARED_SECRET`: Sunucu `.env` dosyasındaki `EDGE_SHARED_SECRET` ile **birebir aynı** değer (Secret)
-   - `GOOGLE_REVIEW_URL`: *(İsteğe bağlı)* `/yorum` yönlendirmesi için Google İşletme yorum linkiniz
-3. Sunucu `.env` dosyasında eşleşen değerleri ayarlayın:
-   ```ini
-   EDGE_DEFAULT_HOST=kafem.pages.dev
-   EDGE_ALLOWED_HOSTS=kafem.com,www.kafem.com
-   EDGE_SHARED_SECRET=<ayni-gizli-anahtar>
-   ```
+| Değişken | Açıklama | Örnek / Varsayılan |
+|---|---|---|
+| `SECRET_KEY` | Oturum ve token imzalama anahtarı (zorunlu) | `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `DATA_DIR` | SQLite veritabanı dizini | `/data` (yerelde `./data`) |
+| `BUSINESS_NAME` | İşletme adı (sonradan panelden değişebilir) | `Kahve Dükkanım` |
+| `ACCENT_COLOR` | Tema ana rengi | `#1E4D3F` |
+| `REWARD_NAME` | Tam kart ödülü adı | `1 İkram El Yapımı Kahve` |
+| `STAMP_TARGET` | Ücretsiz ödül için damga hedefi | `5` |
+| `MANAGER_PASSWORD` | İlk `mudur` hesabı parolası (boşsa ilk açılışta üretilir) | *(boş)* |
+| `STAFF_PASSWORD` | İlk `kasa1` kasiyer parolası (isteğe bağlı) | *(boş)* |
+| `STAMP_SEAL_TOKEN` | Önceden basılı QR mührü token'ı (isteğe bağlı) | *(boş)* |
+| `PUBLIC_BASE_URL` | QR ve bildirim bağlantıları için uygulama adresi | `http://localhost:8000` |
+| `PUBLIC_BASE_PATH` | Alt yol öneki (kök yolda boş bırakın) | *(boş)* |
+| `APP_PORT` | Docker host port eşlemesi | `8000` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push bildirim anahtarları | `python -m app.vapid_gen` |
+| `VAPID_SUBJECT` | Web Push iletişim adresi | `mailto:admin@example.com` |
 
 ---
 

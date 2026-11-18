@@ -375,12 +375,3 @@ def test_customer_app_texts_no_longer_say_one_qr_does_both(client):
     assert "WELCOME_GIFT_TEXT" in html and "res.welcome_gift" in html
     assert "Kayıt Ol ve İlk Damgamı Al" not in html
 
-
-def test_pages_proxy_has_no_path_allow_list():
-    """Cloudflare Pages vekili UPSTREAM_PREFIX önekini ekleyip her yolu aktarır; /m/kayit için ayrıca izin listesi gerekmez."""
-    from pathlib import Path
-    root = Path(__file__).resolve().parent.parent / "cloudflare_pages"
-    fn = (root / "functions" / "[[path]].js").read_text(encoding="utf-8")
-    assert "upstreamPrefix + targetPath" in fn and "allowedpaths" not in fn.lower() and "/m/qr" not in fn
-    routes = (root / "public" / "_routes.json").read_text(encoding="utf-8")
-    assert '"/*"' in routes and '"exclude": []' in routes
