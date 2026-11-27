@@ -75,6 +75,14 @@ Tüm marka, güvenlik ve uygulama adresi ayarları `.env.example` içindeki değ
 | `APP_PORT` | Docker host port eşlemesi | `8000` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push bildirim anahtarları | `python -m app.vapid_gen` |
 | `VAPID_SUBJECT` | Web Push iletişim adresi | `mailto:admin@example.com` |
+| `OTP_MODE` | Yeni cihaz SMS doğrulaması: `off` (kod istenmez) ya da `new_device` (kayıtlı numara yeni cihazdan girilince SMS kodu). Ayrıntı: [`docs/OTP.md`](docs/OTP.md) | `off` |
+| `OTP_PROVIDER` | SMS sağlayıcısı: `sms_gate` (kafenin Android telefonu) ya da yalnızca geliştirmede `console`. `new_device` kipinde boşsa uygulama açılmaz | *(boş)* |
+| `SMS_GATE_URL` | SMSGate adresi: yerel kip `http://<telefon-ip>:8080`, bulut `https://api.sms-gate.app` (varsayılan yok) | *(boş)* |
+| `SMS_GATE_USERNAME` / `SMS_GATE_PASSWORD` | SMSGate uygulamasında görünen kullanıcı adı / parola (HTTP Basic) | *(boş)* |
+| `OTP_TTL_SECONDS` | Kodun geçerlilik süresi (saniye) | `300` |
+| `OTP_MAX_ATTEMPTS` | Kilitlenmeden önce hatalı deneme hakkı | `5` |
+| `OTP_RESEND_SECONDS` | Yeni kod istemeden önce bekleme (saniye) | `60` |
+| `OTP_DAILY_LIMIT_PER_PHONE` | Bir numaraya günde gönderilebilecek en fazla SMS | `5` |
 
 ---
 

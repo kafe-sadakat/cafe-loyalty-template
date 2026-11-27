@@ -196,3 +196,87 @@ def is_push_enabled() -> bool:
     """VAPID anahtarları tanımlıysa True, aksi halde False döner."""
     cfg = get_vapid_settings()
     return bool(cfg["public_key"] and cfg["private_key"])
+
+
+# --- Tek kullanımlık SMS kodu (OTP) — yeni cihaz doğrulaması (docs/OTP.md) ---------------------------------------------
+# OTP_MODE=off (VARSAYILAN): davranış bu özellikten önceki gibidir (geriye dönük uyumluluk: güncellemeyi çeken kurulumda
+# müşteri dışarıda kalmaz). OTP_MODE=new_device: KAYITLI bir numara, o müşteriye bağlı OLMAYAN bir cihazdan girilirse
+# numaraya SMS kodu gider; kod doğrulanmadan cihaz bağlanmaz. Yeni kayıt ve zaten bağlı cihaz kod istemez.
+# Değerler her çağrıda ortamdan okunur (testler ve canlı ayar değişikliği için); açılışta validate_otp_config() denetler.
+OTP_MODES = ("off", "new_device")
+OTP_PROVIDERS = ("console", "sms_gate")
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} bir tam sayı olmalı (şu an: {raw!r}).")
+    if value < minimum:
+        raise RuntimeError(f"{name} en az {minimum} olmalı (şu an: {value}).")
+    return value
+
+
+def get_otp_mode() -> str:
+    """'off' | 'new_device' (geçersiz değer olduğu gibi döner; validate_otp_config açılışta reddeder)."""
+    return (os.getenv("OTP_MODE", "").strip().lower() or "off")
+
+
+def get_otp_settings() -> dict:
+    """OTP ayarları (süreler saniye). Sağlayıcı kimlik bilgileri burada değil, sağlayıcının kendisinde okunur."""
+    return {
+        "mode": get_otp_mode(),
+        "provider": os.getenv("OTP_PROVIDER", "").strip().lower(),
+        "ttl_seconds": _env_int("OTP_TTL_SECONDS", 300, minimum=30),
+        "max_attempts": _env_int("OTP_MAX_ATTEMPTS", 5),
+        "resend_seconds": _env_int("OTP_RESEND_SECONDS", 60, minimum=0),
+        "daily_limit_per_phone": _env_int("OTP_DAILY_LIMIT_PER_PHONE", 5),
+    }
+
+
+def get_sms_gate_settings() -> dict:
+    """SMS Gateway for Android (SMSGate) bağlantısı. Varsayılan adres YOKTUR (kafenin kendi telefonu / sunucusu)."""
+    return {
+        "url": os.getenv("SMS_GATE_URL", "").strip(),
+        "username": os.getenv("SMS_GATE_USERNAME", "").strip(),
+        "password": os.getenv("SMS_GATE_PASSWORD", "").strip(),
+    }
+
+
+def validate_otp_config() -> None:
+    """
+    Açılışta OTP yapılandırmasını denetler; hatalıysa uygulama AÇILMAZ (açık Türkçe hata). OTP_MODE=off iken sağlayıcı
+    ayarlarına bakılmaz. new_device kipinde sağlayıcı eksik/yanlışsa müşteriler sessizce kod alamaz hâle gelmesin diye
+    hemen durulur.
+    """
+    cfg = get_otp_settings()   # sayısal ayarlar bozuksa burada RuntimeError
+    mode = cfg["mode"]
+    if mode not in OTP_MODES:
+        raise RuntimeError(f"OTP_MODE geçersiz: {mode!r}. Geçerli değerler: off (varsayılan) | new_device.")
+    if mode == "off":
+        return
+    provider = cfg["provider"]
+    if not provider:
+        raise RuntimeError(
+            "OTP_MODE=new_device için OTP_PROVIDER tanımlı değil! SMS kodu gönderilemeyeceği için uygulama başlatılmıyor. "
+            "OTP_PROVIDER=sms_gate (gerçek SMS) ya da yalnızca geliştirmede OTP_PROVIDER=console yazın."
+        )
+    if provider not in OTP_PROVIDERS:
+        raise RuntimeError(f"OTP_PROVIDER geçersiz: {provider!r}. Geçerli değerler: {', '.join(OTP_PROVIDERS)}.")
+    if provider == "sms_gate":
+        sg = get_sms_gate_settings()
+        missing = [name for name, key in (("SMS_GATE_URL", "url"), ("SMS_GATE_USERNAME", "username"),
+                                          ("SMS_GATE_PASSWORD", "password")) if not sg[key]]
+        if missing:
+            raise RuntimeError(
+                "OTP_PROVIDER=sms_gate için eksik ayar: " + ", ".join(missing)
+                + ". SMSGate uygulamasındaki adres ve kullanıcı adı/parolayı .env dosyasına yazın (docs/OTP.md)."
+            )
+        if not re.fullmatch(r"https?://[^\s/]+(/\S*)?", sg["url"]):
+            raise RuntimeError(
+                f"SMS_GATE_URL geçersiz: {sg['url']!r}. http:// veya https:// ile başlayan tam adres yazın "
+                "(ör. http://192.168.1.50:8080 ya da https://api.sms-gate.app)."
+            )

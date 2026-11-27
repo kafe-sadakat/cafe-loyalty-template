@@ -690,6 +690,34 @@
     </div>
   </div>
 
+  <!-- Yeni cihaz SMS doğrulaması (docs/OTP.md): kayıtlı numara bu cihazdan ilk kez girilince sunucu otp_required döner;
+       6 haneli kod yazılınca AYNI istek kod alanlarıyla yeniden gönderilir. -->
+  <div id="otp-modal" role="dialog" aria-modal="true" aria-labelledby="otp-modal-title" class="otp-overlay modal-overlay hidden items-end sm:items-center justify-center p-3">
+    <div class="modal-content bg-surface rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-outline-variant/30 space-y-4">
+      <div class="flex items-start justify-between gap-3">
+        <h3 id="otp-modal-title" class="font-headline text-lg font-semibold text-primary leading-snug">📱 Telefonunu doğrula</h3>
+        <button type="button" onclick="closeOtpDialog(null)" class="w-8 h-8 shrink-0 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant" aria-label="Kapat">✕</button>
+      </div>
+      <p id="otp-modal-lead" class="text-xs text-on-surface-variant leading-relaxed">Bu numara başka bir cihazda kayıtlı. Güvenliğin için numarana SMS ile gelen 6 haneli kodu yaz.</p>
+      <form id="otp-form" class="space-y-3" onsubmit="submitOtp(event)">
+        <label for="otp-code-input" class="block font-label text-xs uppercase tracking-widest text-on-surface-variant font-semibold">SMS Kodu</label>
+        <div class="relative flex items-center bg-surface-highest/70 rounded-2xl transition-all duration-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-primary/30 border border-outline-variant/30">
+          <input id="otp-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="••••••"
+            oninput="onOtpInput(this)"
+            class="w-full bg-transparent border-none py-4 px-4 text-on-surface placeholder:text-outline/60 focus:ring-0 font-body text-2xl tracking-[0.5em] text-center font-semibold" />
+        </div>
+        <p id="otp-error-msg" class="text-xs text-error font-medium hidden" role="alert"></p>
+        <button id="otp-submit-btn" type="submit"
+          class="w-full py-3.5 rounded-full emerald-pass-gradient text-white font-label font-semibold text-sm shadow-lg shadow-primary/15 active:scale-[0.98] transition-all disabled:opacity-50">Doğrula ve Devam Et</button>
+      </form>
+      <div class="flex items-center justify-between gap-3 text-xs">
+        <span id="otp-expiry-txt" class="text-on-surface-variant"></span>
+        <button id="otp-resend-btn" type="button" onclick="resendOtp()" class="font-semibold text-primary underline disabled:opacity-50 disabled:no-underline">Kodu tekrar gönder</button>
+      </div>
+      <p class="text-[11px] text-on-surface-variant leading-snug">Kod gelmediyse kasiyerden yardım isteyebilirsin. Bu kodu kimseyle paylaşma; kafe çalışanları da senden kodu istemez.</p>
+    </div>
+  </div>
+
   <!-- Personel Ödül Kullandırma Modalı (/r/{staff_token}) -->
   <div id="staff-redeem-modal" role="dialog" aria-modal="true" class="modal-overlay hidden items-center justify-center p-5">
     <div class="modal-content bg-surface rounded-3xl max-w-md w-full p-6 shadow-2xl border border-outline-variant/30 space-y-4">
@@ -1121,6 +1149,139 @@
       } catch (e) {}
     }
 
+    // ---------- Yeni cihaz SMS doğrulaması (OTP, docs/OTP.md) ----------
+    // Kayıtlı numara bu cihaza bağlı değilse sunucu cihazı bağlamaz, SMS gönderir ve {status:"otp_required"} döner.
+    // postWithOtp aynı isteği (aynı gövde) kod alanlarıyla yeniden gönderir; kullanıcı vazgeçerse null döner.
+    const otpState = { path: null, body: null, challengeId: null, resolve: null, expiresAt: 0, resendAt: 0, timer: null, busy: false };
+
+    async function postWithOtp(path, body) {
+      const res = await apiFetch(path, { method: "POST", body: JSON.stringify(body) });
+      if (res && res.status === "otp_required" && res.challenge_id) return openOtpDialog(path, body, res);
+      return res;
+    }
+    function openOtpDialog(path, body, res) {
+      if (otpState.resolve) otpState.resolve(null);   // önceki pencere (olmamalı) kapanmış sayılır
+      return new Promise((resolve) => {
+        Object.assign(otpState, { path: path, body: body, resolve: resolve, challengeId: null, busy: false });
+        applyOtpChallenge(res);
+        otpError("");
+        const input = document.getElementById("otp-code-input");
+        input.value = "";
+        const m = document.getElementById("otp-modal");
+        m.classList.remove("hidden"); m.classList.add("flex");
+        setTimeout(() => { try { input.focus(); } catch (e) {} }, 60);
+      });
+    }
+    function closeOtpDialog(result) {
+      clearInterval(otpState.timer); otpState.timer = null;
+      const m = document.getElementById("otp-modal");
+      m.classList.add("hidden"); m.classList.remove("flex");
+      const resolve = otpState.resolve;
+      otpState.resolve = null;
+      if (resolve) resolve(result || null);
+    }
+    function applyOtpChallenge(res) {
+      if (res.challenge_id) otpState.challengeId = res.challenge_id;
+      if (res.masked_phone) {
+        document.getElementById("otp-modal-lead").textContent =
+          "Bu numara başka bir cihazda kayıtlı. Güvenliğin için " + String(res.masked_phone).replace(/ /g, " ") + " numarasına SMS ile 6 haneli bir kod gönderdik; kodu yazınca bu cihaz kartına bağlanır.";
+      }
+      const now = Date.now();
+      if (res.expires_in != null) otpState.expiresAt = now + Number(res.expires_in || 0) * 1000;
+      if (res.resend_in != null) otpState.resendAt = now + Number(res.resend_in || 0) * 1000;
+      clearInterval(otpState.timer);
+      otpState.timer = setInterval(otpTick, 1000);
+      otpTick();
+    }
+    function otpTick() {
+      const now = Date.now();
+      const resendLeft = Math.max(0, Math.ceil((otpState.resendAt - now) / 1000));
+      const btn = document.getElementById("otp-resend-btn");
+      btn.disabled = resendLeft > 0 || otpState.busy;
+      btn.textContent = resendLeft > 0 ? "Tekrar gönder (" + resendLeft + " sn)" : "Kodu tekrar gönder";
+      const left = Math.max(0, Math.ceil((otpState.expiresAt - now) / 1000));
+      const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, "0");
+      document.getElementById("otp-expiry-txt").textContent = left > 0 ? "Kod " + mm + ":" + ss + " geçerli" : "Kodun süresi doldu, yeni kod iste.";
+      document.getElementById("otp-submit-btn").disabled = otpState.busy;
+    }
+    function otpError(msg) {
+      const el = document.getElementById("otp-error-msg");
+      el.textContent = msg || "";
+      el.classList.toggle("hidden", !msg);
+    }
+    function onOtpInput(el) {
+      const digits = el.value.replace(/\D/g, "").slice(0, 6);
+      if (el.value !== digits) el.value = digits;
+      if (digits.length === 6 && !otpState.busy) submitOtp(null);   // SMS'ten otomatik doldurma: tek dokunuş gerekmez
+    }
+    function setOtpBusy(on) { otpState.busy = on; otpTick(); }
+    async function submitOtp(e) {
+      if (e) e.preventDefault();
+      if (otpState.busy || !otpState.path) return;
+      const input = document.getElementById("otp-code-input");
+      const code = input.value.replace(/\D/g, "");
+      if (code.length !== 6) { otpError("SMS ile gelen 6 haneli kodu yaz."); input.focus(); return; }
+      setOtpBusy(true);
+      let res;
+      try {
+        res = await apiFetch(otpState.path, {
+          method: "POST",
+          body: JSON.stringify(Object.assign({}, otpState.body, { otp_challenge_id: otpState.challengeId, otp_code: code }))
+        });
+      } catch (err) {
+        otpError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
+        return;
+      } finally {
+        setOtpBusy(false);
+      }
+      handleOtpResponse(res);
+    }
+    function handleOtpResponse(res) {
+      const st = res && res.status;
+      const input = document.getElementById("otp-code-input");
+      if (st === "otp_required") { applyOtpChallenge(res); otpError(""); input.value = ""; input.focus(); return; }
+      if (st === "otp_invalid") { otpError(res.message || "Kod hatalı."); input.value = ""; input.focus(); return; }
+      if (st === "otp_expired") {
+        otpState.expiresAt = 0; otpState.resendAt = 0; otpTick();
+        otpError(res.message || "Kodun süresi doldu. Yeni kod iste.");
+        return;
+      }
+      if (st === "otp_locked" || st === "otp_rate_limited") {
+        otpState.resendAt = Date.now() + Number(res.retry_after || 0) * 1000; otpTick();
+        otpError(res.message || "Çok fazla deneme yapıldı. Lütfen daha sonra tekrar dene.");
+        return;
+      }
+      if (st === "otp_unavailable") { otpError(res.message || "SMS gönderilemedi, lütfen kasiyerden yardım isteyin."); return; }
+      closeOtpDialog(res);   // başarı ya da OTP dışı sonuç: çağıran akış devam eder
+    }
+    async function resendOtp() {
+      if (otpState.busy || !otpState.path) return;
+      setOtpBusy(true);
+      let res;
+      try {
+        if (otpState.challengeId && otpState.expiresAt > Date.now()) {
+          res = await apiFetch("/api/auth/otp/resend", { method: "POST", body: JSON.stringify({ challenge_id: otpState.challengeId }) });
+        }
+        if (!res || res.status === "otp_expired") {
+          // Süresi dolmuş challenge yenilenemez: aynı istek kodsuz gönderilir, sunucu yeni kod üretir
+          res = await apiFetch(otpState.path, { method: "POST", body: JSON.stringify(otpState.body) });
+        }
+      } catch (err) {
+        otpError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
+        return;
+      } finally {
+        setOtpBusy(false);
+      }
+      if (res.status === "otp_sent") {
+        applyOtpChallenge(res);
+        otpError("");
+        showToast(res.message || "Yeni kod gönderildi.", "success");
+        document.getElementById("otp-code-input").focus();
+        return;
+      }
+      handleOtpResponse(res);
+    }
+
     // ---------- Giriş / kayıt (ADR-23: iki ZORUNLU kutu — Aydınlatma teyidi + Açık Rıza ve Ticari Elektronik İleti onayı) ----------
     function consentPayload() {
       return {
@@ -1172,10 +1333,15 @@
       let codeNotice = "";
       try {
         if (appState.pendingClaimToken) {
-          const claimRes = await apiFetch("/api/claim", {
-            method: "POST",
-            body: JSON.stringify(Object.assign({ claim_token: appState.pendingClaimToken, phone: phone, device_token: getStoredToken(), client: claimClient(appState.pendingClaimVia) }, consent))
-          });
+          const claimRes = await postWithOtp("/api/claim",
+            Object.assign({ claim_token: appState.pendingClaimToken, phone: phone, device_token: getStoredToken(), client: claimClient(appState.pendingClaimVia) }, consent)
+          );
+          if (claimRes === null) return;   // SMS doğrulamasından vazgeçildi: cihaz bağlanmadı, damga işlenmedi
+          if (String(claimRes.status || "").indexOf("otp_") === 0) {
+            errEl.textContent = claimRes.message || "Doğrulama kodu gönderilemedi.";
+            errEl.classList.remove("hidden");
+            return;
+          }
           if (claimRes.device_token || claimRes.new_device_token) saveStoredToken(claimRes.device_token || claimRes.new_device_token);
           if (["success", "limit_reached", "daily_limit", "interval_limit", "registered", "registration_qr"].includes(claimRes.status)) {
             appState.pendingClaimToken = null;
@@ -1198,10 +1364,8 @@
           codeNotice = claimRes.message || "";
         }
 
-        const res = await apiFetch("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify(Object.assign({ phone: phone, device_token: getStoredToken() }, consent))
-        });
+        const res = await postWithOtp("/api/auth/login", Object.assign({ phone: phone, device_token: getStoredToken() }, consent));
+        if (res === null) return;   // SMS doğrulamasından vazgeçildi
         if (res.status !== "success") {
           errEl.textContent = res.message || "Lütfen geçerli bir telefon numarası giriniz (5XX XXX XX XX).";
           errEl.classList.remove("hidden");

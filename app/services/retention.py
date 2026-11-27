@@ -8,6 +8,8 @@ günde bir kez çalışır (RETENTION_JOB=0 ile kapatılabilir):
 - Onay/ret, güvenlik ve işlem günlükleri 3 yıl sonra silinir (ETK + KVKK ispat süresi dolunca).
 - Şüphe (fraud) olayları 1 yıl, süresi geçmiş damga bağlantıları (claims) ve kasa damga kodları (stamp_codes,
   ADR-28) 30 gün sonra silinir.
+- Tek kullanımlık SMS kodu kayıtları (otp_challenges) süreleri dolduktan 1 gün sonra silinir (günlük gönderim sınırı
+  bugünün kayıtlarıyla hesaplandığından bir gün tutulur).
 Tarihler İstanbul saatiyle ISO-8601 (+03:00) saklandığından metin karşılaştırması güvenlidir.
 """
 from __future__ import annotations
@@ -28,6 +30,7 @@ LOG_RETENTION_DAYS = 3 * 365
 FRAUD_EVENT_DAYS = 365
 CLAIM_TOKEN_DAYS = 30
 STAMP_CODE_DAYS = 30
+OTP_CHALLENGE_DAYS = 1
 
 _LOG_TABLES = (
     ("audit_log", "at"),
@@ -69,7 +72,8 @@ def run_retention(conn: sqlite3.Connection, now: Optional[datetime] = None) -> d
         return (now - timedelta(days=days)).isoformat()
 
     result = {"customers_anonymized": 0, "subscriptions_deleted": 0, "logs_deleted": 0,
-              "fraud_events_deleted": 0, "claims_deleted": 0, "stamp_codes_deleted": 0}
+              "fraud_events_deleted": 0, "claims_deleted": 0, "stamp_codes_deleted": 0,
+              "otp_challenges_deleted": 0}
 
     for row in inactive_customers(conn, cutoff(INACTIVE_CUSTOMER_DAYS)):
         anonymize_customer(conn, row["id"], row["phone_e164"], actor="system:retention",
@@ -107,6 +111,11 @@ def run_retention(conn: sqlite3.Connection, now: Optional[datetime] = None) -> d
     if _table_exists(conn, "stamp_codes"):
         result["stamp_codes_deleted"] = conn.execute(
             "DELETE FROM stamp_codes WHERE created_at < ?", (cutoff(STAMP_CODE_DAYS),)
+        ).rowcount
+
+    if _table_exists(conn, "otp_challenges"):
+        result["otp_challenges_deleted"] = conn.execute(
+            "DELETE FROM otp_challenges WHERE expires_at < ?", (cutoff(OTP_CHALLENGE_DAYS),)
         ).rowcount
 
     if any(result.values()):

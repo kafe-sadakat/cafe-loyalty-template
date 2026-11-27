@@ -1196,6 +1196,30 @@ def init_db(db_path: Any = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_message_templates_kind ON message_templates (kind, sort_order);
         """)
+        # Tek kullanımlık SMS kodları (OTP, docs/OTP.md): kayıtlı numara yeni cihazdan girilince. Kodun kendisi DEĞİL,
+        # HMAC-SHA256(SECRET_KEY, id + kod) özeti tutulur; IP de anahtarlı özetle. Saklama görevi süresi geçenleri siler.
+        cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS otp_challenges (
+                id TEXT PRIMARY KEY,
+                phone_e164 TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                consumed_at TEXT NULL,
+                last_sent_at TEXT NULL,
+                send_count INTEGER NOT NULL DEFAULT 0,
+                ip_hash TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_otp_challenges_phone ON otp_challenges (phone_e164, purpose, created_at);
+            CREATE INDEX IF NOT EXISTS idx_otp_challenges_expires ON otp_challenges (expires_at);
+        """)
+        _ensure_columns(cursor, "otp_challenges", [
+            ("last_sent_at", "TEXT NULL"),
+            ("send_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("ip_hash", "TEXT NOT NULL DEFAULT ''"),
+        ])
         _seed_default_accounts(cursor, now_iso)
         _backfill_bonus_proof(cursor)
 

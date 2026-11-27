@@ -23,6 +23,8 @@ from app.db import REGISTER_SEAL_TOKEN, get_all_settings, get_kvkk_text, get_set
 from app.services.push import link_anonymous_subscriptions, notify_customer_after_stamp
 from app.services.directus_sync import anonymize_directus_customer, sync_customer_to_directus
 from app.services import activity, fraud, nfc_sun, stamp_codes
+from app.services import otp as otp_service
+from app.services.otp import OtpContext, OtpRequired
 logger = logging.getLogger("sadakat")
 
 DEVICE_COOKIE_NAME = "sadakat_device_token"
@@ -486,6 +488,7 @@ def get_or_create_customer_with_device(
     consent: Optional[dict[str, Any]] = None,
     channel: str = "uygulama",
     gift: Optional[dict[str, Any]] = None,
+    otp: Optional[OtpContext] = None,
 ) -> tuple[int, str, str]:
     """
     Telefon numarasına göre müşteri bulur veya oluşturur.
@@ -496,6 +499,8 @@ def get_or_create_customer_with_device(
     Yeni kayıt olan her müşteriye otomatik olarak user1, user2, user3 şeklinde varsayılan kullanıcı adı atar.
     Yeni (veya silinmiş sonra geri dönen) müşteri için "Aydınlatma Metni'ni okudum, anladım" teyidi zorunludur;
     eksikse ConsentRequired fırlatılır ve hiçbir kayıt oluşturulmaz.
+    `otp` (yalnızca müşteri giriş uçları geçer): OTP_MODE=new_device iken KAYITLI müşterinin numarası ona bağlı olmayan
+    bir cihazdan girilirse, hiçbir değişiklik yapılmadan OtpRequired fırlatılır (docs/OTP.md); kod doğruysa akış aynen sürer.
     Dönüş: (customer_id, raw_device_token, display_name)
     """
     cursor = conn.cursor()
@@ -520,6 +525,9 @@ def get_or_create_customer_with_device(
     if customer:
         customer_id = customer["id"]
         display_name = customer["display_name"]
+        if not customer["deleted_at"]:
+            # Yeni cihaz doğrulaması (OTP): cihaz bağlama / ad / rıza yazımından ÖNCE. Silinmiş hesap yeni kayıt sayılır.
+            otp_service.gate_new_device(conn, phone_e164, customer_id, existing_device_token, otp)
         if customer["deleted_at"] and not consent_is_valid(consent):
             raise ConsentRequired()
         full_name = clean_full_name((consent or {}).get("full_name"))
@@ -874,6 +882,7 @@ def _static_qr_registration(
     conn: sqlite3.Connection, customer: Optional[dict[str, Any]], device_token: Optional[str],
     phone_raw: Optional[str], consent: Optional[dict[str, Any]], now_iso: str, channel: str = "scan",
     message: str = STATIC_QR_REGISTER_MESSAGE, gift: Optional[dict[str, Any]] = None,
+    otp: Optional[OtpContext] = None,
 ) -> dict[str, Any]:
     """
     Damga vermeyen QR (ADR-30 güvenli mod; ADR-35 /m/kayit): kayıtlıya bilgi, kayıtsıza kayıt. Kayıtsız müşteri yeni
@@ -893,8 +902,10 @@ def _static_qr_registration(
     try:
         customer_id, active_token, display_name = get_or_create_customer_with_device(
             conn, phone_e164, now_iso=now_iso, existing_device_token=device_token, consent=consent, channel=channel,
-            gift=gift,
+            gift=gift, otp=otp,
         )
+    except OtpRequired as exc:
+        return exc.response   # aynı nesne: SMS gönderilemezse COMMIT sonrası yerinde otp_unavailable olur
     except ConsentRequired:
         return {"status": "consent_required", "message": CONSENT_REQUIRED_MSG}
     except RegistrationBlocked as e:
@@ -981,15 +992,18 @@ def process_claim_submission(
     client_ip: str = "",
     hold_secret: Optional[str] = None,
     client: Optional[dict[str, Any]] = None,
+    otp: Optional[OtpContext] = None,
 ) -> dict[str, Any]:
     """
     Damga talebini işler (kurallar: _process_claim_submission) ve sonucunu — verildi / verilmedi + nedeni, gerekirse
     "olası kötüye kullanım" notu — işlem kaydına yazar (ADR-31, activity.record_claim). `client`: müşteri uygulamasının
     bildirdiği açılış şekli (nav, hist, standalone, via) + User-Agent; yalnızca kayıt ve şüphe notu içindir, damga
     kararını DEĞİŞTİRMEZ. `nonce` eski istemci uyumluluğu için kabul edilir ve yok sayılır.
+    `otp`: kayıt alanlarıyla gelen istekte kayıtlı numara yeni cihazdan girilirse damga işlenmez, otp_* yanıtı döner.
     """
     trace: dict[str, Any] = {}
-    result = _process_claim_submission(conn, claim_token, device_token, phone_raw, consent, client_ip, hold_secret, trace)
+    result = _process_claim_submission(conn, claim_token, device_token, phone_raw, consent, client_ip, hold_secret, trace,
+                                       otp)
     activity.record_claim(conn, result, trace, device_token=device_token, client=client, ip=client_ip)
     return result
 
@@ -1003,6 +1017,7 @@ def _process_claim_submission(
     client_ip: str,
     hold_secret: Optional[str],
     trace: dict[str, Any],
+    otp: Optional[OtpContext] = None,
 ) -> dict[str, Any]:
     """
     Damga talebini işler (ADR-28, ADR-29, ADR-30). `trace` işlem kaydı için kodu, kanalı ve müşteriyi toplar:
@@ -1040,7 +1055,7 @@ def _process_claim_submission(
         gift: dict[str, Any] = {}
         result = _static_qr_registration(
             conn, customer, device_token, phone_raw, consent, now_iso, channel="app",
-            message=KAYIT_QR_MESSAGE, gift=gift,
+            message=KAYIT_QR_MESSAGE, gift=gift, otp=otp,
         )
         trace["fresh_registration"] = bool(gift.get("fresh"))
         return result
@@ -1078,7 +1093,8 @@ def _process_claim_submission(
                 return {"status": "error", "message": STALE_QR_MESSAGE}
             if not static_qr_stamps_enabled(conn):
                 trace["register_only"] = True
-                return _static_qr_registration(conn, customer, device_token, phone_raw, consent, now_iso, channel="app")
+                return _static_qr_registration(conn, customer, device_token, phone_raw, consent, now_iso, channel="app",
+                                               otp=otp)
             if customer is None and (phone_raw is None or str(phone_raw).strip() == ""):
                 return {"status": "need_auth", "message": "Numaranı yaz, damgan seni bekliyor. ☕"}
             opened = stamp_codes.create_stamp_code(conn, origin="scan", ttl_seconds=stamp_codes.SCAN_TTL_SECONDS, now=now)
@@ -1091,7 +1107,7 @@ def _process_claim_submission(
             if row["origin"] == "scan" and not row["used_at"] and not static_qr_stamps_enabled(conn):
                 # Basılı QR'ın damgası kapatılmadan önce açılmış (henüz kullanılmamış) açılış da damga vermez
                 trace["register_only"] = True
-                return _static_qr_registration(conn, customer, device_token, phone_raw, consent, now_iso)
+                return _static_qr_registration(conn, customer, device_token, phone_raw, consent, now_iso, otp=otp)
             state = stamp_codes.code_state(row, hold_secret, now)
             if state not in ("valid", "held_here"):
                 return _rejected_stamp_code(conn, row, state, customer, device_token, client_ip, now)
@@ -1138,7 +1154,11 @@ def _process_claim_submission(
                 consent=consent,
                 channel=trace.get("channel") or activity.row_channel(row),
                 gift=gift,
+                otp=otp,
             )
+        except OtpRequired as exc:
+            # Kayıtlı numara yeni cihazdan: kod doğrulanmadan cihaz bağlanmaz, damga VERİLMEZ (kod ayrılmış kalır)
+            return _held(exc.response)
         except ConsentRequired:
             return _held({"status": "consent_required", "message": CONSENT_REQUIRED_MSG})
         except RegistrationBlocked as e:
@@ -1743,10 +1763,12 @@ def lookup_card_by_phone(
     existing_device_token: Optional[str] = None,
     push_endpoint: Optional[str] = None,
     consent: Optional[dict[str, Any]] = None,
+    otp: Optional[OtpContext] = None,
 ) -> tuple[bool, Optional[dict[str, Any]], Optional[str]]:
     """
     Telefon numarasıyla giriş/kayıt ve kalıcı cihaz bağlama.
-    Yeni müşteri için onay eksikse ConsentRequired fırlatır.
+    Yeni müşteri için onay eksikse ConsentRequired fırlatır. Kayıtlı numara yeni cihazdan girilirse (OTP_MODE=new_device)
+    OtpRequired fırlatır: çağıran işlemi COMMIT edip `exc.response`u döndürmelidir.
     """
     try:
         phone_e164 = normalize_phone(raw_phone)
@@ -1767,6 +1789,7 @@ def lookup_card_by_phone(
             push_endpoint=push_endpoint,
             consent=consent,
             gift=gift,
+            otp=otp,
         )
     except RegistrationBlocked as e:
         return False, None, str(e)

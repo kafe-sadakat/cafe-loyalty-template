@@ -168,6 +168,16 @@ def rate_limit_blocked(key: str, max_requests: int, window_seconds: int) -> bool
         return sum(1 for t in _rate_limits.get(key, []) if t > cutoff) >= max_requests
 
 
+def rate_limit_retry_after(key: str, max_requests: int, window_seconds: int) -> int:
+    """Sınır doluysa en eski sayılan olayın pencereden çıkmasına kalan saniye (en az 1); dolu değilse 0."""
+    with _rate_lock:
+        now = time.time()
+        stamps = sorted(t for t in _rate_limits.get(key, []) if t > now - window_seconds)
+    if len(stamps) < max_requests:
+        return 0
+    return max(1, int(stamps[len(stamps) - max_requests] + window_seconds - now + 0.999))
+
+
 def rate_limit_record(key: str) -> None:
     """Anahtara bir olay ekler (örn. yalnızca BAŞARISIZ giriş denemesi)."""
     with _rate_lock:

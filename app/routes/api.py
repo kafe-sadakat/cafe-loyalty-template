@@ -33,7 +33,8 @@ from app.services.push import (
     unsubscribe_push,
 )
 from app.services.campaign_rewards import join_campaign, submit_campaign
-from app.services import security, stamp_codes
+from app.services import otp as otp_service, security, stamp_codes
+from app.services.otp import OtpContext, OtpRequired
 from app.utils import check_rate_limit, mask_phone_for_log, hash_token, generate_token, get_istanbul_now_iso
 
 logger = logging.getLogger("sadakat")
@@ -108,6 +109,9 @@ class ClaimRequest(BaseModel):
     # ADR-31: sayfanın açılış şekli (nav: navigate | reload | back_forward, hist: sekme geçmişi uzunluğu, standalone,
     # via: page | scanner). Yalnızca işlem kaydı ve şüphe notu içindir; damga kararını değiştirmez.
     client: Optional[Dict[str, Any]] = None
+    # Yeni cihaz SMS doğrulaması (docs/OTP.md): otp_required yanıtından sonra aynı istek bu alanlarla yeniden gönderilir
+    otp_challenge_id: Optional[str] = None
+    otp_code: Optional[str] = None
 
 
 def _claim_client(raw: Optional[Dict[str, Any]], request: Request) -> dict[str, Any]:
@@ -131,6 +135,19 @@ class CardLookupRequest(BaseModel):
     kvkk_read: Optional[bool] = None
     explicit_consent: Optional[bool] = None
     marketing_consent: Optional[bool] = None
+    otp_challenge_id: Optional[str] = None   # docs/OTP.md
+    otp_code: Optional[str] = None
+
+
+class OtpResendRequest(BaseModel):
+    challenge_id: Optional[str] = None
+
+
+def otp_context(req: Any, request: Request) -> OtpContext:
+    """İstekteki OTP alanları (yalnızca müşteri giriş uçları). OTP_MODE=off iken kapı hiçbir şey yapmaz."""
+    return OtpContext.from_request(
+        getattr(req, "otp_challenge_id", None), getattr(req, "otp_code", None), panel_auth.client_ip(request)
+    )
 
 
 class MarketingConsentRequest(BaseModel):
@@ -178,6 +195,8 @@ class MeIdentifyRequest(BaseModel):
     kvkk_read: Optional[bool] = None
     explicit_consent: Optional[bool] = None
     marketing_consent: Optional[bool] = None
+    otp_challenge_id: Optional[str] = None   # docs/OTP.md
+    otp_code: Optional[str] = None
 
 
 class PushSubscribeRequest(BaseModel):
@@ -238,6 +257,21 @@ def api_auth_login(req: CardLookupRequest, request: Request, response: Response)
         except Exception:
             pass
     return res
+
+
+@router.post("/auth/otp/resend")
+def api_auth_otp_resend(req: OtpResendRequest, request: Request):
+    """
+    Yeni cihaz SMS kodunu yeniden gönderir (aynı challenge_id, yeni kod). Yanıt: otp_sent | otp_rate_limited |
+    otp_expired | otp_unavailable. Bekleme (OTP_RESEND_SECONDS), numara başına günlük sınır ve IP sınırı sunucudadır.
+    """
+    client_ip = panel_auth.client_ip(request)
+    if not check_rate_limit(f"otp_resend_{client_ip}", max_requests=10, window_seconds=60):
+        return {"status": "otp_rate_limited", "retry_after": 60,
+                "message": "Çok fazla istek yapıldı. Lütfen biraz bekleyip tekrar dene."}
+    with get_db(immediate=True) as conn:
+        result = otp_service.resend(conn, req.challenge_id, client_ip)
+    return result   # SMS gönderilemediyse COMMIT sonrası yerinde otp_unavailable yapıldı
 
 
 @router.post("/auth/logout")
@@ -304,6 +338,7 @@ def api_claim(req: ClaimRequest, request: Request, response: Response):
                 client_ip=client_ip,
                 hold_secret=hold_secret,
                 client=_claim_client(req.client, request),
+                otp=otp_context(req, request),
             )
     except Exception as exc:
         logger.error(
@@ -323,7 +358,9 @@ def api_claim(req: ClaimRequest, request: Request, response: Response):
             key=stamp_codes.HOLD_COOKIE, value=new_hold, httponly=True, secure=True, samesite="lax",
             path="/", max_age=stamp_codes.HOLD_SECONDS,
         )
-    elif hold_secret and result.get("status") not in ("need_auth", "consent_required", "error"):
+    elif (hold_secret and result.get("status") not in ("need_auth", "consent_required", "error")
+          and not otp_service.is_otp_status(result.get("status"))):
+        # OTP bekleniyorsa ayrılan kod bu tarayıcıda kalır: kod doğrulanınca aynı damga işlenir
         response.delete_cookie(key=stamp_codes.HOLD_COOKIE, path="/")
 
     active_token = result.get("new_device_token")
@@ -545,17 +582,26 @@ def api_card_lookup(req: CardLookupRequest, request: Request, response: Response
     if not check_rate_limit(f"lookup_api_{client_ip}", max_requests=25, window_seconds=60):
         return {"status": "error", "message": "Lütfen biraz bekleyip tekrar deneyiniz."}
 
+    otp_response: Optional[dict] = None
     try:
         device_token = resolve_device_token(request, req.device_token)
         with get_db(immediate=True) as conn:
-            success, card_data, err_msg = lookup_card_by_phone(
-                conn,
-                req.phone,
-                existing_device_token=device_token,
-                consent=build_consent(req, request),
-            )
-            if not success or not card_data:
-                return {"status": "error", "message": err_msg}
+            try:
+                success, card_data, err_msg = lookup_card_by_phone(
+                    conn,
+                    req.phone,
+                    existing_device_token=device_token,
+                    consent=build_consent(req, request),
+                    otp=otp_context(req, request),
+                )
+            except OtpRequired as exc:
+                # İşlem COMMIT edilir (deneme sayacı / challenge kalıcı); cihaz bağlanmadı, token verilmez
+                otp_response = exc.response
+            else:
+                if not success or not card_data:
+                    return {"status": "error", "message": err_msg}
+        if otp_response is not None:
+            return otp_response   # SMS gönderilemediyse COMMIT sonrası yerinde otp_unavailable yapıldı
     except ConsentRequired:
         return {"status": "consent_required", "message": CONSENT_REQUIRED_MSG}
     except Exception as exc:
@@ -706,17 +752,25 @@ def api_me_identify(req: MeIdentifyRequest, request: Request, response: Response
 
     device_token = resolve_device_token(request, req.device_token)
 
+    otp_response: Optional[dict] = None
     try:
         with get_db(immediate=True) as conn:
-            success, card_data, err_msg = lookup_card_by_phone(
-                conn,
-                req.phone,
-                existing_device_token=device_token,
-                push_endpoint=req.endpoint,
-                consent=build_consent(req, request),
-            )
-            if not success or not card_data:
-                return {"status": "error", "message": err_msg}
+            try:
+                success, card_data, err_msg = lookup_card_by_phone(
+                    conn,
+                    req.phone,
+                    existing_device_token=device_token,
+                    push_endpoint=req.endpoint,
+                    consent=build_consent(req, request),
+                    otp=otp_context(req, request),
+                )
+            except OtpRequired as exc:
+                otp_response = exc.response
+            else:
+                if not success or not card_data:
+                    return {"status": "error", "message": err_msg}
+        if otp_response is not None:
+            return otp_response
     except ConsentRequired:
         return {"status": "consent_required", "message": CONSENT_REQUIRED_MSG}
     except Exception as exc:
