@@ -16,7 +16,8 @@ PG_DB = os.getenv("PG_DB", "directus")
 PG_USER = os.getenv("PG_USER", "directus")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 
-CUSTOMER_ROLE_ID = os.getenv("DIRECTUS_CUSTOMER_ROLE_ID", "996d9d98-76b1-4af6-a1a2-e44f1e23f233")
+# Directus müşteri rolü kurulumda .env ile verilmelidir; şablonda belirli bir kuruluma ait varsayılan yoktur.
+CUSTOMER_ROLE_ID = os.getenv("DIRECTUS_CUSTOMER_ROLE_ID", "").strip()
 
 DIRECTUS_INTERNAL_URL = os.getenv("DIRECTUS_INTERNAL_URL", "http://directus:8055")
 # Gizli bilgiler yalnızca ortamdan (.env) okunur; kodda varsayılan parola/anahtar bulunmaz.
@@ -27,6 +28,9 @@ DIRECTUS_ADMIN_PASSWORD = os.getenv("DIRECTUS_ADMIN_PASSWORD") or os.getenv("ADM
 
 def _is_sync_enabled() -> bool:
     if os.getenv("DISABLE_DIRECTUS_SYNC", "") == "1":
+        return False
+    # Rol kimliği tanımlı değilse senkron yapılandırılmamış sayılır; hiçbir dış bağlantı denenmez.
+    if not CUSTOMER_ROLE_ID:
         return False
     # Bağımsız SQLite kurulumunda (PG_PASSWORD yoksa ve ENABLE_DIRECTUS_SYNC=1 değilse) bağlantı denemesi yapma.
     if not PG_PASSWORD and os.getenv("ENABLE_DIRECTUS_SYNC", "") != "1":
