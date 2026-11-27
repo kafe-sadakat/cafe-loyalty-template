@@ -1275,7 +1275,7 @@
       if (res.status === "otp_sent") {
         applyOtpChallenge(res);
         otpError("");
-        showToast(res.message || "Yeni kod gönderildi.", "success");
+        showToast(res.message || "Kod yeniden gönderildi.", "success");
         document.getElementById("otp-code-input").focus();
         return;
       }

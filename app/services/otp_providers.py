@@ -12,6 +12,7 @@ günlüğüne bile metni / kodu yazmaz.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Callable, Optional
 from urllib.parse import urlsplit
 
@@ -45,7 +46,11 @@ class ConsoleProvider(OtpProvider):
         )
 
 
-SMS_GATE_TIMEOUT = httpx.Timeout(8.0, connect=4.0)
+# Bağlantı en çok 3 sn; httpx'in aşama başına zaman aşımına ek olarak tüm istek en çok SMS_TOTAL_TIMEOUT saniye sürer
+# (SMS, isteği yapan müşterinin yanıtı beklerken COMMIT sonrası gönderilir: yavaş SMSGate müşteriyi bekletmesin).
+SMS_GATE_TIMEOUT = httpx.Timeout(5.0, connect=3.0)
+SMS_TOTAL_TIMEOUT = 5.0
+_send_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="otp-sms")
 _SMS_GATE_CLOUD_HOSTS = ("api.sms-gate.app",)
 
 
@@ -96,8 +101,14 @@ class SmsGateProvider(OtpProvider):
             raise OtpProviderError("SMSGate ayarları eksik (SMS_GATE_URL / SMS_GATE_USERNAME / SMS_GATE_PASSWORD).")
         endpoint = sms_gate_endpoint(self.url)
         body = {"textMessage": {"text": text}, "phoneNumbers": [phone_e164]}
+        future = _send_pool.submit(
+            httpx.post, endpoint, json=body, auth=(self.username, self.password), timeout=SMS_GATE_TIMEOUT,
+        )
         try:
-            resp = httpx.post(endpoint, json=body, auth=(self.username, self.password), timeout=SMS_GATE_TIMEOUT)
+            resp = future.result(timeout=SMS_TOTAL_TIMEOUT)
+        except FutureTimeout:
+            future.cancel()
+            raise OtpProviderError(f"SMSGate {SMS_TOTAL_TIMEOUT:g} sn içinde yanıt vermedi.") from None
         except httpx.HTTPError as exc:
             # Metin/kod günlüğe YAZILMAZ; yalnızca hata türü
             raise OtpProviderError(f"SMSGate'e ulaşılamadı ({type(exc).__name__}).") from None

@@ -262,8 +262,9 @@ def api_auth_login(req: CardLookupRequest, request: Request, response: Response)
 @router.post("/auth/otp/resend")
 def api_auth_otp_resend(req: OtpResendRequest, request: Request):
     """
-    Yeni cihaz SMS kodunu yeniden gönderir (aynı challenge_id, yeni kod). Yanıt: otp_sent | otp_rate_limited |
-    otp_expired | otp_unavailable. Bekleme (OTP_RESEND_SECONDS), numara başına günlük sınır ve IP sınırı sunucudadır.
+    Yeni cihaz SMS kodunu yeniden gönderir (aynı challenge_id, AYNI kod, süre uzamaz: başkasının yeniden gönderme isteği
+    müşterinin elindeki kodu geçersiz kılamaz). Yanıt: otp_sent | otp_rate_limited | otp_expired | otp_unavailable.
+    Bekleme (OTP_RESEND_SECONDS), numara başına günlük, IP başına saatlik ve genel SMS sınırları sunucudadır (veritabanı).
     """
     client_ip = panel_auth.client_ip(request)
     if not check_rate_limit(f"otp_resend_{client_ip}", max_requests=10, window_seconds=60):

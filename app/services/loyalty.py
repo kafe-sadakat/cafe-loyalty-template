@@ -861,6 +861,21 @@ def _rejected_stamp_code(
     return result
 
 
+def _claim_code_state(
+    conn: sqlite3.Connection, row: sqlite3.Row, hold_secret: Optional[str], customer: Optional[dict[str, Any]],
+    phone_raw: Optional[str], otp: Optional[OtpContext], now: datetime,
+) -> str:
+    """
+    stamp_codes.code_state + çerezsiz istemci (docs/OTP.md): başka tarayıcıya ayrılmış görünen kod, istek o ayrılmaya
+    bağlı geçerli challenge'ı aynı numarayla taşıyorsa bu isteğin sayılır ('held_here'). Damga yine de ancak SMS kodu
+    doğrulanınca verilir (gate_new_device); tanınan (cihazı bağlı) müşteri için uygulanmaz.
+    """
+    state = stamp_codes.code_state(row, hold_secret, now)
+    if state == "held_elsewhere" and customer is None and otp_service.owns_held_code(conn, row, otp, phone_raw):
+        return "held_here"
+    return state
+
+
 def _log_code_for_cashier(
     conn: sqlite3.Connection, row: sqlite3.Row, customer_id: int, phone_e164: Optional[str],
     action: str, detail: str, ip: str,
@@ -1071,7 +1086,7 @@ def _process_claim_submission(
             trace["nfc_stale"] = nfc_rejected.get("message") == NFC_STALE_MESSAGE
             return nfc_rejected
         trace["row"] = row
-        state = stamp_codes.code_state(row, hold_secret, now)
+        state = _claim_code_state(conn, row, hold_secret, customer, phone_raw, otp, now)
         if state not in ("valid", "held_here"):
             return _rejected_stamp_code(conn, row, state, customer, device_token, client_ip, now)
     else:
@@ -1108,7 +1123,7 @@ def _process_claim_submission(
                 # Basılı QR'ın damgası kapatılmadan önce açılmış (henüz kullanılmamış) açılış da damga vermez
                 trace["register_only"] = True
                 return _static_qr_registration(conn, customer, device_token, phone_raw, consent, now_iso, otp=otp)
-            state = stamp_codes.code_state(row, hold_secret, now)
+            state = _claim_code_state(conn, row, hold_secret, customer, phone_raw, otp, now)
             if state not in ("valid", "held_here"):
                 return _rejected_stamp_code(conn, row, state, customer, device_token, client_ip, now)
 
@@ -1157,7 +1172,12 @@ def _process_claim_submission(
                 otp=otp,
             )
         except OtpRequired as exc:
-            # Kayıtlı numara yeni cihazdan: kod doğrulanmadan cihaz bağlanmaz, damga VERİLMEZ (kod ayrılmış kalır)
+            # Kayıtlı numara yeni cihazdan: kod doğrulanmadan cihaz bağlanmaz, damga VERİLMEZ (kod ayrılmış kalır).
+            # Ayrılan kod challenge'a da bağlanır: çerez tutmayan yerel uygulama aynı isteği otp_challenge_id + otp_code
+            # ile yeniden gönderince kodun sahibi sayılır (owns_held_code) ve SMS kodu doğrulanınca damgayı alır.
+            if (exc.response.get("status") == "otp_required" and exc.response.get("challenge_id")
+                    and (new_hold or state == "held_here")):
+                otp_service.bind_hold_to_challenge(conn, row["id"], exc.response["challenge_id"])
             return _held(exc.response)
         except ConsentRequired:
             return _held({"status": "consent_required", "message": CONSENT_REQUIRED_MSG})
@@ -1231,7 +1251,9 @@ def _process_claim_submission(
     if not stamp_codes.consume_code(conn, row["id"], customer_id, "stamped", now):
         trace["race"] = True
         status, message, _ = _CODE_REJECTIONS["used"]
-        return {"status": status, "message": message}
+        # Bu istekte cihaz bağlanmış olabilir (ör. SMS kodu doğrulandı): belirteç kaybolmasın
+        return {"status": status, "message": message,
+                "new_device_token": active_device_token, "device_token": active_device_token}
 
     # 5-6. Damgayı ekle ve hedefe ulaşıldıysa ödül biletini üret (rapor: işlemi yapan = kodu gösteren kasiyer)
     seal = _get_fallback_active_seal(conn)

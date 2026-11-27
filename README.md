@@ -77,12 +77,15 @@ Tüm marka, güvenlik ve uygulama adresi ayarları `.env.example` içindeki değ
 | `VAPID_SUBJECT` | Web Push iletişim adresi | `mailto:admin@example.com` |
 | `OTP_MODE` | Yeni cihaz SMS doğrulaması: `off` (kod istenmez) ya da `new_device` (kayıtlı numara yeni cihazdan girilince SMS kodu). Ayrıntı: [`docs/OTP.md`](docs/OTP.md) | `off` |
 | `OTP_PROVIDER` | SMS sağlayıcısı: `sms_gate` (kafenin Android telefonu) ya da yalnızca geliştirmede `console`. `new_device` kipinde boşsa uygulama açılmaz | *(boş)* |
-| `SMS_GATE_URL` | SMSGate adresi: yerel kip `http://<telefon-ip>:8080`, bulut `https://api.sms-gate.app` (varsayılan yok) | *(boş)* |
+| `OTP_ALLOW_CONSOLE` | `console` sağlayıcısına açık izin (`1`); yoksa `console` ile uygulama açılmaz | *(boş)* |
+| `SMS_GATE_URL` | SMSGate adresi: yerel kip `http://<telefon-ip>:8080`, bulut `https://api.sms-gate.app` (varsayılan yok). `https://` zorunlu; `http://` yalnızca yerel ağ / Tailscale adreslerinde | *(boş)* |
 | `SMS_GATE_USERNAME` / `SMS_GATE_PASSWORD` | SMSGate uygulamasında görünen kullanıcı adı / parola (HTTP Basic) | *(boş)* |
-| `OTP_TTL_SECONDS` | Kodun geçerlilik süresi (saniye) | `300` |
-| `OTP_MAX_ATTEMPTS` | Kilitlenmeden önce hatalı deneme hakkı | `5` |
-| `OTP_RESEND_SECONDS` | Yeni kod istemeden önce bekleme (saniye) | `60` |
-| `OTP_DAILY_LIMIT_PER_PHONE` | Bir numaraya günde gönderilebilecek en fazla SMS | `5` |
+| `OTP_TTL_SECONDS` | Kodun geçerlilik süresi (saniye, 30 – 900) | `300` |
+| `OTP_MAX_ATTEMPTS` | Bir bağlantının (IP) bir koda hatalı deneme hakkı (1 – 10; challenge başına toplam tavan 10) | `3` |
+| `OTP_RESEND_SECONDS` | Kodu yeniden göndermeden önce bekleme (saniye, 0 – 900; aynı kod yeniden gider) | `60` |
+| `OTP_DAILY_LIMIT_PER_PHONE` | Bir numaraya günde gönderilebilecek en fazla SMS (1 – 10) | `5` |
+| `OTP_GLOBAL_HOURLY_LIMIT` | İşletme genelinde saatte en fazla SMS (1 – 1000) | `30` |
+| `OTP_GLOBAL_DAILY_LIMIT` | İşletme genelinde günde en fazla SMS (1 – 10000) | `200` |
 
 ---
 

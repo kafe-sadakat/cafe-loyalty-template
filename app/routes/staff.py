@@ -20,6 +20,7 @@ from app.services.staff import (
     staff_add_stamp,
     staff_campaign_review,
     staff_lookup,
+    staff_otp_reset,
     staff_redeem_reward,
     staff_register_customer,
     staff_search,
@@ -181,6 +182,17 @@ def redeem(req: PhoneIn, request: Request):
         return denied
     with get_db(immediate=True) as conn:
         return staff_redeem_reward(conn, req.phone, _name(request), auth.client_ip(request), _sid(request), req.customer_id)
+
+
+@router.post("/otp-reset")
+def otp_reset(req: PhoneIn, request: Request):
+    """"Doğrulama kilidini sıfırla": müşteri kasadayken numaranın SMS doğrulama kilidini ve günlük sayacını sıfırlar."""
+    if (denied := _guard(request)) or (denied := _probe_guard(request, req.customer_id)):
+        return denied
+    with get_db(immediate=True) as conn:
+        result = staff_otp_reset(conn, req.phone, _name(request), auth.client_ip(request), _sid(request), req.customer_id)
+    _remember_customer_ids(request, result)
+    return result
 
 
 class CampaignReviewIn(BaseModel):

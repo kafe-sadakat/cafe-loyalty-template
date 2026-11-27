@@ -1,9 +1,11 @@
 import hmac
+import ipaddress
 import logging
 import os
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -203,11 +205,23 @@ def is_push_enabled() -> bool:
 # müşteri dışarıda kalmaz). OTP_MODE=new_device: KAYITLI bir numara, o müşteriye bağlı OLMAYAN bir cihazdan girilirse
 # numaraya SMS kodu gider; kod doğrulanmadan cihaz bağlanmaz. Yeni kayıt ve zaten bağlı cihaz kod istemez.
 # Değerler her çağrıda ortamdan okunur (testler ve canlı ayar değişikliği için); açılışta validate_otp_config() denetler.
+# off kipinde diğer OTP değişkenleri HİÇ okunmaz (bozuk bir değer de açılışı engellemez).
 OTP_MODES = ("off", "new_device")
 OTP_PROVIDERS = ("console", "sms_gate")
 
+# (ortam değişkeni, varsayılan, en az, en çok) — sınır dışı değerde uygulama AÇILMAZ (yanlış ayar sessizce güvenliği
+# zayıflatmasın: ör. sınırsız deneme hakkı ya da saatlerce geçerli kod).
+_OTP_INT_SETTINGS = {
+    "ttl_seconds": ("OTP_TTL_SECONDS", 300, 30, 900),
+    "max_attempts": ("OTP_MAX_ATTEMPTS", 3, 1, 10),
+    "resend_seconds": ("OTP_RESEND_SECONDS", 60, 0, 900),
+    "daily_limit_per_phone": ("OTP_DAILY_LIMIT_PER_PHONE", 5, 1, 10),
+    "global_hourly_limit": ("OTP_GLOBAL_HOURLY_LIMIT", 30, 1, 1000),
+    "global_daily_limit": ("OTP_GLOBAL_DAILY_LIMIT", 200, 1, 10000),
+}
 
-def _env_int(name: str, default: int, minimum: int = 1) -> int:
+
+def _env_int(name: str, default: int, minimum: int = 1, maximum: Optional[int] = None) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
         return default
@@ -217,6 +231,8 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         raise RuntimeError(f"{name} bir tam sayı olmalı (şu an: {raw!r}).")
     if value < minimum:
         raise RuntimeError(f"{name} en az {minimum} olmalı (şu an: {value}).")
+    if maximum is not None and value > maximum:
+        raise RuntimeError(f"{name} en çok {maximum} olabilir (şu an: {value}).")
     return value
 
 
@@ -227,14 +243,10 @@ def get_otp_mode() -> str:
 
 def get_otp_settings() -> dict:
     """OTP ayarları (süreler saniye). Sağlayıcı kimlik bilgileri burada değil, sağlayıcının kendisinde okunur."""
-    return {
-        "mode": get_otp_mode(),
-        "provider": os.getenv("OTP_PROVIDER", "").strip().lower(),
-        "ttl_seconds": _env_int("OTP_TTL_SECONDS", 300, minimum=30),
-        "max_attempts": _env_int("OTP_MAX_ATTEMPTS", 5),
-        "resend_seconds": _env_int("OTP_RESEND_SECONDS", 60, minimum=0),
-        "daily_limit_per_phone": _env_int("OTP_DAILY_LIMIT_PER_PHONE", 5),
-    }
+    cfg: dict = {"mode": get_otp_mode(), "provider": os.getenv("OTP_PROVIDER", "").strip().lower()}
+    for key, (name, default, low, high) in _OTP_INT_SETTINGS.items():
+        cfg[key] = _env_int(name, default, minimum=low, maximum=high)
+    return cfg
 
 
 def get_sms_gate_settings() -> dict:
@@ -246,18 +258,50 @@ def get_sms_gate_settings() -> dict:
     }
 
 
+# Şifresiz (http://) SMSGate adresine yalnızca bu ağlarda izin verilir: kod içeren SMS metni ve SMSGate parolası
+# internete açık metin olarak çıkmasın. RFC1918, loopback, Tailscale/CGNAT (100.64/10) ve IPv6 yerel ağları.
+_PRIVATE_SMS_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "100.64.0.0/10", "::1/128", "fc00::/7",
+))
+
+
+def is_private_sms_host(host: Optional[str]) -> bool:
+    """SMSGate adresinin host'u yerel / özel ağda mı? (localhost, *.local, RFC1918, 127/8, ::1, 100.64/10, fc00::/7)"""
+    h = (host or "").strip().lower().rstrip(".")
+    if not h:
+        return False
+    if h == "localhost" or h.endswith(".localhost") or h.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(h.strip("[]"))
+    except ValueError:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in net for net in _PRIVATE_SMS_NETWORKS if net.version == ip.version)
+
+
+def console_provider_allowed() -> bool:
+    return os.getenv("OTP_ALLOW_CONSOLE", "").strip() == "1"
+
+
 def validate_otp_config() -> None:
     """
-    Açılışta OTP yapılandırmasını denetler; hatalıysa uygulama AÇILMAZ (açık Türkçe hata). OTP_MODE=off iken sağlayıcı
-    ayarlarına bakılmaz. new_device kipinde sağlayıcı eksik/yanlışsa müşteriler sessizce kod alamaz hâle gelmesin diye
-    hemen durulur.
+    Açılışta OTP yapılandırmasını denetler; hatalıysa uygulama AÇILMAZ (açık Türkçe hata). OTP_MODE=off iken başka hiçbir
+    OTP değişkeni okunmaz (davranış tamamen eskisi gibidir). new_device kipinde sağlayıcı eksik/yanlışsa ya da sayısal
+    ayarlar sınır dışındaysa müşteriler sessizce kod alamaz / güvenlik zayıflamış hâle gelmesin diye hemen durulur.
     """
-    cfg = get_otp_settings()   # sayısal ayarlar bozuksa burada RuntimeError
-    mode = cfg["mode"]
+    mode = get_otp_mode()
     if mode not in OTP_MODES:
         raise RuntimeError(f"OTP_MODE geçersiz: {mode!r}. Geçerli değerler: off (varsayılan) | new_device.")
     if mode == "off":
         return
+    cfg = get_otp_settings()   # sayısal ayarlar bozuk / sınır dışıysa burada RuntimeError
+    if cfg["global_hourly_limit"] > cfg["global_daily_limit"]:
+        raise RuntimeError(
+            f"OTP_GLOBAL_HOURLY_LIMIT ({cfg['global_hourly_limit']}) OTP_GLOBAL_DAILY_LIMIT "
+            f"({cfg['global_daily_limit']}) değerinden büyük olamaz."
+        )
     provider = cfg["provider"]
     if not provider:
         raise RuntimeError(
@@ -266,6 +310,11 @@ def validate_otp_config() -> None:
         )
     if provider not in OTP_PROVIDERS:
         raise RuntimeError(f"OTP_PROVIDER geçersiz: {provider!r}. Geçerli değerler: {', '.join(OTP_PROVIDERS)}.")
+    if provider == "console" and not console_provider_allowed():
+        raise RuntimeError(
+            "OTP_PROVIDER=console SMS GÖNDERMEZ, kodları uygulama günlüğüne yazar (yalnızca geliştirme). Bilerek "
+            "kullanıyorsanız OTP_ALLOW_CONSOLE=1 ekleyin; canlıda OTP_PROVIDER=sms_gate kullanın."
+        )
     if provider == "sms_gate":
         sg = get_sms_gate_settings()
         missing = [name for name, key in (("SMS_GATE_URL", "url"), ("SMS_GATE_USERNAME", "username"),
@@ -279,4 +328,17 @@ def validate_otp_config() -> None:
             raise RuntimeError(
                 f"SMS_GATE_URL geçersiz: {sg['url']!r}. http:// veya https:// ile başlayan tam adres yazın "
                 "(ör. http://192.168.1.50:8080 ya da https://api.sms-gate.app)."
+            )
+        parts = urlsplit(sg["url"])
+        try:
+            host = parts.hostname
+        except ValueError:
+            host = None
+        if not host:
+            raise RuntimeError(f"SMS_GATE_URL geçersiz: {sg['url']!r} (sunucu adı okunamadı).")
+        if parts.scheme.lower() != "https" and not is_private_sms_host(host):
+            raise RuntimeError(
+                f"SMS_GATE_URL şifresiz (http://) ve yerel ağda değil: {host!r}. SMS kodu ve SMSGate parolası internette "
+                "açık metin olarak gider. https:// kullanın; http:// yalnızca yerel ağ adreslerinde (192.168.x.x, 10.x.x.x, "
+                "172.16-31.x.x, 127.x.x.x, ::1, *.local, Tailscale 100.64.0.0/10) kabul edilir."
             )
