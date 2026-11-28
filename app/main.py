@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import app.config as app_config
-from app.config import get_secret_key
+from app.config import get_secret_key, validate_otp_config
 from app.db import init_db, get_db
 from app.routes import customer, api, manager, staff, panels, display
 from app.services.directus_sync import sync_all_sqlite_to_directus
@@ -54,6 +54,8 @@ async def _retention_loop() -> None:
 async def lifespan(app: FastAPI):
     # Zorunlu SECRET_KEY kontrolü
     get_secret_key()
+    # OTP (yeni cihaz SMS kodu) yapılandırması: OTP_MODE=new_device iken sağlayıcı eksik/yanlışsa uygulama AÇILMAZ
+    validate_otp_config()
     # Uygulama açılışında SQLite tablolarını, migration'ları ve varsayılan ayarları hazırla
     init_db()
     Path(app_config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)

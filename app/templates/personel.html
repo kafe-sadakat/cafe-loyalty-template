@@ -216,6 +216,10 @@
       const stampBtn = limitHit
         ? '<button type="button" class="bb-btn" style="min-height:3rem;font-size:15px" disabled>Günlük limit (' + c.daily_limit + ") doldu</button>"
         : '<button type="button" class="' + (gift ? "bb-btn" : "bb-btn-primary") + '" style="min-height:3.25rem;font-size:16px" data-act="stamp" data-id="' + c.id + '">+1 DAMGA BAS</button>';
+      // Yeni cihaz SMS doğrulaması (docs/OTP.md): müşteri kasadayken kilit / günlük SMS sınırı sıfırlanır
+      const otpBtn = c.otp_enabled
+        ? '<button type="button" class="bb-btn" style="min-height:3rem;font-size:14px" data-act="otp-reset" data-id="' + c.id + '" title="Müşteri yanınızdayken: hatalı kod kilidini ve bugünkü SMS sınırını sıfırlar">🔓 Doğrulama kilidini sıfırla</button>'
+        : "";
       return '<div class="flex flex-col gap-space-sm">' + proofNoteStrip(c) +
         '<div class="rounded-xl p-space-lg flex flex-col gap-space-md bg-surface-container-low" style="border:1px solid var(--bb-border)">' +
         '<div class="flex flex-wrap items-start justify-between gap-3">' +
@@ -229,7 +233,7 @@
         bonusProofHtml(c) +
         campaignBoxHtml(c) +
         giftBtn +
-        '<div class="flex flex-col sm:flex-row gap-space-sm">' + stampBtn + "</div>" +
+        '<div class="flex flex-col sm:flex-row gap-space-sm">' + stampBtn + otpBtn + "</div>" +
         recentStampsHtml(c) +
       "</div></div>";
     }
@@ -308,12 +312,17 @@
         const ok = await confirmBox(c.display_name + " için 1 adet hediye kahve düşülecek. Onaylıyor musunuz?", "Hediyeyi Ver");
         if (!ok) return;
       }
+      if (act === "otp-reset") {
+        const ok = await confirmBox(c.display_name + " (" + (c.masked_phone || "") + ") kasada mı? Numaranın SMS doğrulama kilidi ve bugünkü SMS sınırı sıfırlanacak. Yalnızca müşteri yanınızdayken yapın.", "Kilidi Sıfırla");
+        if (!ok) return;
+      }
+      const endpoint = act === "gift" ? "api/staff/redeem" : (act === "otp-reset" ? "api/staff/otp-reset" : "api/staff/stamp");
       actionBusy = true;
       try {
-        const res = await api(act === "gift" ? "api/staff/redeem" : "api/staff/stamp", { method: "POST", body: { customer_id: id } });
+        const res = await api(endpoint, { method: "POST", body: { customer_id: id } });
         if (res.customer) updateCustomer(res.customer);
         if (res.status === "success") {
-          showToast(act === "gift" ? "Hediye Verildi! 🎁" : "Damga Eklendi!", res.message || "İşlem tamamlandı.", "success");
+          showToast(act === "gift" ? "Hediye Verildi! 🎁" : (act === "otp-reset" ? "Doğrulama Kilidi Sıfırlandı 🔓" : "Damga Eklendi!"), res.message || "İşlem tamamlandı.", "success");
           loadRecentLogs();
         } else if (res.status === "limit_reached") {
           showToast("Günlük Limit", res.message || "Günlük damga sınırına ulaşıldı.", "error");
@@ -381,7 +390,8 @@
         customer_search: '<span class="bb-chip">Arama</span>',
         stamp_denied_daily_limit: '<span class="bb-chip">Limit Engeli</span>',
         campaign_approved: '<span class="bb-chip bb-chip-ok">🎯 Kampanya Onayı</span>',
-        campaign_rejected: '<span class="bb-chip">Kampanya Reddi</span>'
+        campaign_rejected: '<span class="bb-chip">Kampanya Reddi</span>',
+        otp_reset: '<span class="bb-chip">🔓 Doğrulama Kilidi Sıfırlandı</span>'
       };
       tbody.innerHTML = logs.map((l) =>
         "<tr><td class=\"text-xs text-outline\">" + esc(l.at ? String(l.at).substring(11, 16) : "—") + "</td>" +

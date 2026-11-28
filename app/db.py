@@ -1076,7 +1076,10 @@ def init_db(db_path: Any = None) -> None:
         """)
         # ADR-29: 'scan' = sabit QR / NFC okutmasıyla açılan tek kullanımlık açılış, 'screen' = kasa ekranının canlı kodu.
         # ADR-30: 'nfc' = NTAG 424 DNA dokunuşu (kod = "nfc:UID:sayaç"), 'display' = Kasa QR Ekranı (display_id).
-        _ensure_columns(cursor, "stamp_codes", [("origin", "TEXT NOT NULL DEFAULT 'screen'"), ("display_id", "INTEGER NULL")])
+        # hold_challenge_hash: kayıt sırasında SMS kodu (OTP) istenince ayrılan kod o challenge'a da bağlanır (çerez
+        # tutmayan yerel uygulama aynı challenge + doğru kodla damgayı alabilsin; docs/OTP.md).
+        _ensure_columns(cursor, "stamp_codes", [("origin", "TEXT NOT NULL DEFAULT 'screen'"), ("display_id", "INTEGER NULL"),
+                                                ("hold_challenge_hash", "TEXT NULL")])
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_stamp_codes_created ON stamp_codes (created_at);")
 
         # 19d. NTAG 424 DNA etiketleri (ADR-30): her etiketin görülen en büyük dokunuş sayacı. Sayaç geri gidemez; küçük ya
@@ -1195,6 +1198,58 @@ def init_db(db_path: Any = None) -> None:
                 updated_at TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_message_templates_kind ON message_templates (kind, sort_order);
+        """)
+        # Tek kullanımlık SMS kodları (OTP, docs/OTP.md): kayıtlı numara yeni cihazdan girilince. Kodun kendisi DEĞİL,
+        # HMAC-SHA256(SECRET_KEY, id + kod) özeti tutulur; IP de anahtarlı özetle. Saklama görevi süresi geçenleri siler.
+        cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS otp_challenges (
+                id TEXT PRIMARY KEY,
+                phone_e164 TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                consumed_at TEXT NULL,
+                last_sent_at TEXT NULL,
+                send_count INTEGER NOT NULL DEFAULT 0,
+                ip_hash TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_otp_challenges_phone ON otp_challenges (phone_e164, purpose, created_at);
+            CREATE INDEX IF NOT EXISTS idx_otp_challenges_expires ON otp_challenges (expires_at);
+        """)
+        _ensure_columns(cursor, "otp_challenges", [
+            ("last_sent_at", "TEXT NULL"),
+            ("send_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("ip_hash", "TEXT NOT NULL DEFAULT ''"),
+            # Yeniden gönderimde AYNI kod gider: kod SECRET_KEY + bu rastgele tohumdan türetilir (tohum tek başına kodu vermez)
+            ("code_seed", "TEXT NOT NULL DEFAULT ''"),
+        ])
+        # OTP: hatalı denemeler (challenge, IP özeti) başına — bir IP'nin kilidi diğerlerini kilitlemez; her SMS gönderimi
+        # (numara başına günlük, IP başına saatlik ve genel saatlik/günlük sınırlar veritabanından sayılır; numara ve IP
+        # yalnızca anahtarlı özetle); aynı olay için tek denetim kaydı işaretleri. Saklama görevi eskileri siler.
+        cursor.executescript("""
+            CREATE TABLE IF NOT EXISTS otp_attempts (
+                challenge_id TEXT NOT NULL,
+                ip_hash TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (challenge_id, ip_hash)
+            );
+            CREATE TABLE IF NOT EXISTS otp_sends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sent_at TEXT NOT NULL,
+                phone_hash TEXT NOT NULL,
+                ip_hash TEXT NOT NULL DEFAULT '',
+                challenge_id TEXT NULL,
+                counts_for_phone INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS idx_otp_sends_sent ON otp_sends (sent_at);
+            CREATE INDEX IF NOT EXISTS idx_otp_sends_phone ON otp_sends (phone_hash, sent_at);
+            CREATE INDEX IF NOT EXISTS idx_otp_sends_ip ON otp_sends (ip_hash, sent_at);
+            CREATE TABLE IF NOT EXISTS otp_audit_marks (
+                key TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
         """)
         _seed_default_accounts(cursor, now_iso)
         _backfill_bonus_proof(cursor)

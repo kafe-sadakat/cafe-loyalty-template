@@ -18,6 +18,7 @@ from app import auth
 from app.config import DEFAULT_BUSINESS_NAME, PUBLIC_BASE_URL, is_push_enabled, request_public_base
 from app.db import get_all_settings, get_db, get_kvkk_text, get_setting, log_audit, set_setting
 from app.services import activity, nfc_sun, qr_displays, reports, stamp_codes
+from app.services import otp as otp_service
 from app.services import security
 from app.services.admin import (
     admin_add_stamp,
@@ -303,7 +304,12 @@ def overview(request: Request, search: Optional[str] = None):
 @router.get("/customers")
 def customers(search: Optional[str] = None):
     with get_db() as conn:
-        return {"status": "success", "customers": get_all_customers_admin(conn, search=search)}
+        rows = get_all_customers_admin(conn, search=search)
+    otp_on = otp_service.is_enabled()
+    for row in rows:
+        if isinstance(row, dict):
+            row["otp_enabled"] = otp_on   # "Doğrulama kilidini sıfırla" düğmesi yalnızca SMS doğrulaması açıkken
+    return {"status": "success", "customers": rows, "otp_enabled": otp_on}
 
 
 @router.post("/customers/create")
@@ -361,6 +367,30 @@ def customer_redeem(customer_id: int, request: Request):
             auth.client_ip(request),
         )
         return {"status": "success", "message": "Ödül kullandırıldı.", "customer": customer}
+
+
+@router.post("/customers/{customer_id}/otp-reset")
+def customer_otp_reset(customer_id: int, request: Request):
+    """
+    "Doğrulama kilidini sıfırla" (docs/OTP.md): müşteri yanındayken numaranın SMS doğrulama kilitlerini (hatalı deneme)
+    ve bugünkü SMS sayacını sıfırlar. Denetim ve personel işlem günlüğüne yazılır.
+    """
+    if not otp_service.is_enabled():
+        return {"status": "error", "message": "SMS doğrulaması (OTP) bu kurulumda kapalı."}
+    with get_db(immediate=True) as conn:
+        row = conn.execute(
+            "SELECT id, phone_e164 FROM customers WHERE id = ? AND deleted_at IS NULL", (customer_id,)
+        ).fetchone()
+        if not row:
+            return {"status": "error", "message": "Müşteri bulunamadı."}
+        res = otp_service.reset_phone(conn, row["phone_e164"], actor=_actor(request))
+        mgr = auth.current_manager(request) or {}
+        log_staff_action(
+            conn, (mgr.get("name") or "Müdür"), "otp_reset", customer_id, mask_phone(row["phone_e164"]),
+            "Müdür panelinden SMS doğrulama kilidi sıfırlandı", auth.client_ip(request),
+        )
+    return {"status": "success", "reset": res,
+            "message": "Doğrulama kilidi sıfırlandı. Müşteri SMS kodunu yazabilir ya da yeni kod isteyebilir."}
 
 
 @router.post("/customers/{customer_id}/fraud-review")

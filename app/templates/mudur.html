@@ -2564,6 +2564,7 @@
           '<button type="button" class="bb-icon-btn" data-act="add" data-id="' + c.id + '" title="+1 Damga">' + ico("plus") + "</button>" +
           '<button type="button" class="bb-btn" data-act="set" data-id="' + c.id + '">Sayıya Ayarla</button>' +
           '<button type="button" class="bb-btn" data-act="history" data-id="' + c.id + '" title="QR okutmaları, verilen / verilmeyen damgalar, notlar">' + ico("history") + " Geçmiş</button>" +
+          (c.otp_enabled ? '<button type="button" class="bb-btn" data-act="otp-reset" data-id="' + c.id + '" title="Müşteri yanınızdayken: SMS doğrulama kilidini ve bugünkü SMS sınırını sıfırlar">🔓 Doğrulama kilidini sıfırla</button>' : "") +
         "</div></div>" + bonusProofHtml(c) + campaignBoxHtml(c) + gift + recentStampsHtml(c) + "</div>";
     }
 
@@ -2621,6 +2622,11 @@
       } else if (act === "remove") {
         res = await api("api/admin/customers/" + id + "/stamp-remove", { method: "POST" });
         if (res.status === "success") toast("-1 Damga düşürüldü", "ok");
+      } else if (act === "otp-reset") {
+        const ok = await confirmBox("Müşteri yanınızda mı? Numaranın SMS doğrulama kilidi (hatalı kod denemeleri) ve bugünkü SMS sınırı sıfırlanacak.", "Kilidi Sıfırla");
+        if (!ok) return;
+        res = await api("api/admin/customers/" + id + "/otp-reset", { method: "POST" });
+        if (res.status === "success") toast("Doğrulama kilidi sıfırlandı 🔓", "ok");
       } else if (act === "set") {
         const max = stampTarget() - 1;
         const v = await promptBox("Karttaki damga sayısı (0 – " + max + "):", "");

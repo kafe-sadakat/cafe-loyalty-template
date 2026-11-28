@@ -446,6 +446,8 @@ def _record_claim(conn, result, trace, device_token, client, ip) -> None:  # noq
     status = str(result.get("status") or "")
     if status in ("", "consent_required", "registered") or (status == "error" and not trace.get("seal_inactive")):
         return   # telefon / onay hatası ara adımdır; kasa QR'ıyla kayıt get_or_create'te kaydedilir
+    if status.startswith("otp_"):
+        return   # yeni cihaz SMS doğrulaması bekleniyor (docs/OTP.md): damga isteği henüz işlenmedi
     now = get_istanbul_now()
     row = trace.get("row")
     # Kod tabloda yoksa (uydurma / değiştirilmiş bağlantı) kaynağı bilinmez: "dışarıdan gelen bağlantı"

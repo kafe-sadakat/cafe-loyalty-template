@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from app.db import get_all_settings, log_audit
 from app.services import activity
+from app.services import otp as otp_service
 from app.services.admin import admin_create_customer, admin_redeem_reward
 from app.services.campaign_rewards import review_participant
 from app.services.directus_sync import sync_customer_to_directus
@@ -135,6 +136,7 @@ def customer_view(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         "today_stamps": count_today_stamps(conn, row["id"]),
         "daily_limit": int(settings.get("daily_limit", "2") or 2),
         "reward_name": settings.get("reward_name", ""),
+        "otp_enabled": otp_service.is_enabled(),   # "Doğrulama kilidini sıfırla" düğmesi yalnızca SMS doğrulaması açıkken
     }
 
 
@@ -310,6 +312,31 @@ def staff_redeem_reward(
         return {"status": "no_reward", "message": redeem_err or "Kullanılabilir ödül yok.", "customer": customer_view(conn, row)}
     log_staff_action(conn, staff_name, "reward_redeemed", row["id"], masked, "", ip, staff_id=staff_id)
     return {"status": "success", "message": "Hediye kahve kullandırıldı. Afiyet olsun! ☕", "customer": customer_view(conn, row)}
+
+
+def staff_otp_reset(
+    conn: sqlite3.Connection, raw_phone: Optional[str], staff_name: str, ip: str,
+    staff_id: Optional[int] = None, customer_id: Optional[int] = None,
+) -> dict[str, Any]:
+    """
+    "Doğrulama kilidini sıfırla" (docs/OTP.md): müşteri kasada (kimliği görülerek) yeni telefonunu bağlayamıyorsa —
+    çok hatalı deneme kilidi ya da günlük SMS sınırı — numaranın kilitlerini ve bugünkü SMS sayacını sıfırlar.
+    Denetim günlüğüne ve personel işlem günlüğüne yazılır.
+    """
+    row, err = _find_customer(conn, raw_phone, customer_id)
+    if not row:
+        return {"status": "not_found", "message": err}
+    if not otp_service.is_enabled():
+        return {"status": "error", "message": "SMS doğrulaması (OTP) bu kurulumda kapalı.", "customer": customer_view(conn, row)}
+    res = otp_service.reset_phone(conn, row["phone_e164"], actor=f"staff:{staff_name}")
+    log_staff_action(conn, staff_name, "otp_reset", row["id"], mask_phone(row["phone_e164"]),
+                     "SMS doğrulama kilidi sıfırlandı", ip, staff_id=staff_id)
+    return {
+        "status": "success",
+        "message": "Doğrulama kilidi sıfırlandı. Müşteri telefonundaki SMS kodunu yazabilir ya da yeni kod isteyebilir.",
+        "reset": res,
+        "customer": customer_view(conn, row),
+    }
 
 
 def staff_campaign_review(
